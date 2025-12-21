@@ -1,0 +1,59 @@
+# 环境变量和敏感信息
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/*.pyc
+*.pyc
+__pycache__/
+.Python
+*.py[cod]
+*$py.class
+
+# Node.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.pnp
+frontend/.pnp.js
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Build
+dist/
+build/
+
+# Misc
+*.local
+.cache/
+tmp/
+temp/
+
+# Data files with potential sensitive info
+backend/data/questions.json
+
+# Screenshots and temp files
+*.png.tmp
+
