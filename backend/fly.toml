@@ -1,0 +1,24 @@
+app = "tantan-api"
+primary_region = "hkg"
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  APP_NAME = "AI调研助手-探探"
+  DEBUG = "false"
+  API_HOST = "0.0.0.0"
+  API_PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
