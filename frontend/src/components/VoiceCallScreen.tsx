@@ -255,18 +255,23 @@ export default function VoiceCallScreen({
     }
   };
 
+  if (!isOpen) return null;
+
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex flex-col"
-          style={{
-            background: "linear-gradient(135deg, #fce4ec 0%, #e8eaf6 50%, #e0f7fa 100%)",
-          }}
-        >
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] flex flex-col"
+      style={{
+        background: "linear-gradient(135deg, #fce4ec 0%, #e8eaf6 50%, #e0f7fa 100%)",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+      }}
+    >
           {/* 头部 */}
           <div className="flex items-center justify-between p-4 pt-12">
             <div className="w-10" />
@@ -421,8 +426,6 @@ export default function VoiceCallScreen({
             </p>
           </div>
         </motion.div>
-      )}
-    </AnimatePresence>
   );
 }
 
