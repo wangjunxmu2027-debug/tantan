@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { motion } from "framer-motion";
-import { User, Volume2, VolumeX } from "lucide-react";
+import { User, Volume2, VolumeX, Loader2 } from "lucide-react";
+
+// TTS API 地址
+const TTS_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
@@ -20,56 +23,131 @@ export default function MessageBubble({
 }: MessageBubbleProps) {
   const isAssistant = role === "assistant";
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [canSpeak, setCanSpeak] = useState(false);
-
-  // 检查是否支持语音合成
-  useEffect(() => {
-    setCanSpeak('speechSynthesis' in window);
-  }, []);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // 自动朗读最新的 AI 消息
   useEffect(() => {
-    if (isAssistant && isLatest && autoSpeak && canSpeak && content) {
+    if (isAssistant && isLatest && autoSpeak && content) {
       const timer = setTimeout(() => {
         speak();
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [isAssistant, isLatest, autoSpeak, canSpeak, content]);
+  }, [isAssistant, isLatest, autoSpeak, content]);
 
-  // 朗读文本
-  const speak = () => {
-    if (!canSpeak) return;
-    
-    window.speechSynthesis.cancel();
-    
-    const cleanedText = content
+  // 清理音频
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // 清理 Markdown 标记
+  const cleanText = (text: string) => {
+    return text
       .replace(/\*\*/g, '')
       .replace(/\*/g, '')
       .replace(/#{1,6}\s/g, '')
       .replace(/\n{2,}/g, '。')
-      .replace(/\n/g, '，');
+      .replace(/\n/g, '，')
+      .trim();
+  };
 
-    const utterance = new SpeechSynthesisUtterance(cleanedText);
+  // 使用高质量 TTS 朗读文本
+  const speak = async () => {
+    // 停止当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    setIsLoading(true);
+    
+    try {
+      const cleanedText = cleanText(content);
+      
+      // 调用 TTS API
+      const response = await fetch(`${TTS_API_URL}/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          text: cleanedText,
+          voice: "qingxin" // 清新女声
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("TTS 请求失败");
+      }
+
+      // 获取音频数据
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // 创建音频元素播放
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      
+      audio.onplay = () => {
+        setIsSpeaking(true);
+        setIsLoading(false);
+      };
+      
+      audio.onended = () => {
+        setIsSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+      };
+      
+      audio.onerror = () => {
+        console.error("音频播放错误");
+        setIsSpeaking(false);
+        setIsLoading(false);
+        // 降级到浏览器 TTS
+        fallbackSpeak(cleanedText);
+      };
+
+      await audio.play();
+      
+    } catch (error) {
+      console.error("TTS 错误:", error);
+      setIsLoading(false);
+      // 降级到浏览器 TTS
+      fallbackSpeak(cleanText(content));
+    }
+  };
+
+  // 降级方案：浏览器内置 TTS
+  const fallbackSpeak = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-CN';
     utterance.rate = 1.1;
-    utterance.pitch = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const zhVoice = voices.find(v => v.lang.includes('zh'));
-    if (zhVoice) utterance.voice = zhVoice;
-
+    
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-
+    
     window.speechSynthesis.speak(utterance);
   };
 
   // 停止朗读
   const stopSpeak = () => {
-    window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
     setIsSpeaking(false);
+    setIsLoading(false);
   };
 
   return (
@@ -157,19 +235,24 @@ export default function MessageBubble({
       </motion.div>
 
       {/* AI 消息的语音播放按钮 */}
-      {isAssistant && canSpeak && (
+      {isAssistant && (
         <button
-          onClick={isSpeaking ? stopSpeak : speak}
+          onClick={isSpeaking || isLoading ? stopSpeak : speak}
+          disabled={isLoading}
           className={`
             self-start mt-1 p-1.5 rounded-full transition-all duration-200 flex-shrink-0
             ${isSpeaking 
               ? 'bg-purple-100 text-purple-600' 
-              : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+              : isLoading
+                ? 'bg-gray-100 text-gray-400'
+                : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
             }
           `}
-          title={isSpeaking ? '停止播放' : '播放语音'}
+          title={isLoading ? '加载中...' : isSpeaking ? '停止播放' : '播放语音'}
         >
-          {isSpeaking ? (
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : isSpeaking ? (
             <Volume2 className="w-4 h-4 animate-pulse" />
           ) : (
             <Volume2 className="w-4 h-4" />
