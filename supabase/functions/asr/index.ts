@@ -1,137 +1,78 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
-// 火山引擎 ASR 配置
-const VOLC_ACCESS_KEY = Deno.env.get("VOLC_ACCESS_KEY") || "";
-const VOLC_SECRET_KEY = Deno.env.get("VOLC_SECRET_KEY") || "";
-const VOLC_ASR_APP_ID = Deno.env.get("VOLC_TTS_APP_ID") || ""; // 复用 TTS 的 APP ID
+// 火山引擎 ASR 配置 - 复用 TTS 的配置
+const ASR_APP_ID = Deno.env.get("VOLC_TTS_APP_ID") || "";
+const ASR_TOKEN = Deno.env.get("VOLC_TTS_TOKEN") || "";
 
-// 火山引擎一句话识别 API
+// 调用火山引擎语音识别 API
 // 文档: https://www.volcengine.com/docs/6561/80818
-
-interface ASRResponse {
-  reqid: string;
-  code: number;
-  message: string;
-  result?: {
-    text: string;
-    utterances?: Array<{
-      text: string;
-      start_time: number;
-      end_time: number;
-    }>;
+async function recognizeSpeech(audioBase64: string, format: string = "wav"): Promise<string> {
+  const url = "https://openspeech.bytedance.com/api/v1/asr";
+  
+  const requestBody = {
+    app: {
+      appid: ASR_APP_ID,
+      token: ASR_TOKEN,
+      cluster: "volcengine_input_common"  // 一句话识别 通用-中文
+    },
+    user: {
+      uid: "tantan_" + Date.now()
+    },
+    audio: {
+      format: format === "webm" ? "ogg" : (format === "mp4" ? "m4a" : format),
+      rate: 16000,
+      bits: 16,
+      channel: 1,
+      language: "zh-CN"
+    },
+    request: {
+      reqid: crypto.randomUUID(),
+      sequence: -1,  // -1 表示一次性识别
+      nbest: 1,
+      workflow: "audio_in,resample,partition,vad,fe,decode,itn,nlu_punctuate",
+      show_utterances: true,
+      result_type: "full"
+    },
+    // 音频数据需要 base64 编码
+    audio_data: audioBase64
   };
-}
 
-// V4 签名
-async function signVolcengineRequest(
-  method: string,
-  host: string,
-  path: string,
-  query: URLSearchParams,
-  headers: Headers,
-  body: string | ArrayBuffer,
-  service: string,
-  region: string,
-  accessKey: string,
-  secretKey: string
-): Promise<Headers> {
-  const date = new Date();
-  const amzDate = date.toISOString().replace(/[:-]|\.\d{3}/g, "");
-  const dateStamp = amzDate.substring(0, 8);
+  console.log("火山引擎 ASR 请求:", { 
+    appid: ASR_APP_ID, 
+    format: requestBody.audio.format,
+    dataLength: audioBase64.length 
+  });
 
-  headers.set("X-Date", amzDate);
-  headers.set("Host", host);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer;${ASR_TOKEN}`
+    },
+    body: JSON.stringify(requestBody)
+  });
 
-  // Task 1: Create Canonical Request
-  const canonicalUri = path;
-  const canonicalQueryString = [...query.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
+  const responseText = await response.text();
+  console.log("火山引擎 ASR 原始响应:", responseText.substring(0, 500));
 
-  const signedHeadersList = Array.from(headers.keys())
-    .map(k => k.toLowerCase())
-    .filter(k => k === "host" || k === "content-type" || k.startsWith("x-"))
-    .sort();
+  let result;
+  try {
+    result = JSON.parse(responseText);
+  } catch (e) {
+    console.error("解析响应失败:", e);
+    throw new Error("ASR 响应解析失败");
+  }
 
-  const canonicalHeaders = signedHeadersList
-    .map(k => `${k}:${headers.get(k)?.trim()}\n`)
-    .join("");
+  console.log("火山引擎 ASR 响应码:", result.code, result.message);
 
-  const signedHeaders = signedHeadersList.join(";");
+  // 检查响应
+  if (result.code !== 1000 && result.code !== 0) {
+    throw new Error(`ASR 失败: ${result.message || result.code}`);
+  }
 
-  // Hash payload
-  const bodyData = typeof body === "string" ? new TextEncoder().encode(body) : new Uint8Array(body);
-  const hashedPayload = await crypto.subtle.digest("SHA-256", bodyData);
-  const hexHashedPayload = Array.from(new Uint8Array(hashedPayload))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  const canonicalRequest = [
-    method,
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders,
-    hexHashedPayload,
-  ].join("\n");
-
-  const hashedCanonicalRequest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(canonicalRequest)
-  );
-  const hexHashedCanonicalRequest = Array.from(new Uint8Array(hashedCanonicalRequest))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  // Task 2: Create String to Sign
-  const algorithm = "HMAC-SHA256";
-  const credentialScope = `${dateStamp}/${region}/${service}/request`;
-  const stringToSign = [
-    algorithm,
-    amzDate,
-    credentialScope,
-    hexHashedCanonicalRequest,
-  ].join("\n");
-
-  // Task 3: Calculate Signature
-  const kSecret = new TextEncoder().encode(secretKey);
-  const kDate = await crypto.subtle.sign(
-    "HMAC",
-    await crypto.subtle.importKey("raw", kSecret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
-    new TextEncoder().encode(dateStamp)
-  );
-  const kRegion = await crypto.subtle.sign(
-    "HMAC",
-    await crypto.subtle.importKey("raw", kDate, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
-    new TextEncoder().encode(region)
-  );
-  const kService = await crypto.subtle.sign(
-    "HMAC",
-    await crypto.subtle.importKey("raw", kRegion, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
-    new TextEncoder().encode(service)
-  );
-  const kSigning = await crypto.subtle.sign(
-    "HMAC",
-    await crypto.subtle.importKey("raw", kService, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
-    new TextEncoder().encode("request")
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    await crypto.subtle.importKey("raw", kSigning, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
-    new TextEncoder().encode(stringToSign)
-  );
-  const hexSignature = Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  // Task 4: Add signing information to the request
-  const authorizationHeader =
-    `${algorithm} Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${hexSignature}`;
-  headers.set("Authorization", authorizationHeader);
-
-  return headers;
+  // 返回识别结果
+  return result.result || result.text || "";
 }
 
 Deno.serve(async (req: Request) => {
@@ -140,96 +81,42 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 获取音频数据 (base64 或 binary)
+    // 获取音频数据
     const contentType = req.headers.get("content-type") || "";
     
-    let audioData: ArrayBuffer;
-    let audioFormat = "wav";
+    let audioBase64: string;
+    let format = "wav";
     
     if (contentType.includes("application/json")) {
-      // Base64 编码的音频
-      const { audio, format = "wav" } = await req.json();
-      if (!audio) {
+      // JSON 请求体中的 base64 音频
+      const body = await req.json();
+      audioBase64 = body.audio;
+      format = body.format || "wav";
+      
+      if (!audioBase64) {
         return errorResponse("缺少音频数据", 400);
       }
-      // 解码 base64
-      const binaryString = atob(audio);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      audioData = bytes.buffer;
-      audioFormat = format;
     } else {
-      // Binary 音频数据
-      audioData = await req.arrayBuffer();
+      // 二进制音频数据 - 转换为 base64
+      const audioData = await req.arrayBuffer();
+      const bytes = new Uint8Array(audioData);
+      audioBase64 = btoa(String.fromCharCode(...bytes));
+      // 从 content-type 推断格式
+      if (contentType.includes("webm")) format = "webm";
+      else if (contentType.includes("mp3")) format = "mp3";
+      else if (contentType.includes("ogg")) format = "ogg";
     }
 
-    if (!VOLC_ACCESS_KEY || !VOLC_SECRET_KEY) {
-      console.warn("火山引擎密钥未配置，无法使用 ASR");
+    if (!ASR_APP_ID || !ASR_TOKEN) {
+      console.warn("火山引擎 ASR 密钥未配置");
       return errorResponse("ASR 服务未配置", 500);
     }
 
-    // 火山引擎一句话识别 API
-    const host = "openspeech.bytedanceapi.com";
-    const path = "/api/v1/asr";
-    const region = "cn-beijing";
-    const service = "speech_asr";
-    const method = "POST";
-
-    const query = new URLSearchParams({
-      appid: VOLC_ASR_APP_ID,
-      language: "zh-CN",
-      format: audioFormat,
-      max_end_silence: "800",
-      show_utterances: "true",
-    });
-
-    const headers = new Headers({
-      "Content-Type": "audio/" + audioFormat,
-      "X-Content-Type": "audio/" + audioFormat,
-    });
-
-    const signedHeaders = await signVolcengineRequest(
-      method,
-      host,
-      path,
-      query,
-      headers,
-      audioData,
-      service,
-      region,
-      VOLC_ACCESS_KEY,
-      VOLC_SECRET_KEY
-    );
-
-    console.log(`ASR 请求: ${host}${path}?${query.toString()}, 音频大小: ${audioData.byteLength} bytes`);
-
-    const response = await fetch(`https://${host}${path}?${query.toString()}`, {
-      method: method,
-      headers: signedHeaders,
-      body: audioData,
-    });
-
-    const responseText = await response.text();
-    console.log("ASR 响应:", responseText);
-
-    if (!response.ok) {
-      console.error("火山引擎 ASR 失败:", response.status, responseText);
-      return errorResponse(`ASR 失败: ${responseText}`, response.status);
-    }
-
-    const result: ASRResponse = JSON.parse(responseText);
-    
-    if (result.code !== 0) {
-      console.error("ASR 识别失败:", result.message);
-      return errorResponse(`ASR 识别失败: ${result.message}`, 400);
-    }
+    const text = await recognizeSpeech(audioBase64, format);
 
     return jsonResponse({
       success: true,
-      text: result.result?.text || "",
-      utterances: result.result?.utterances || [],
+      text: text,
     });
 
   } catch (err) {
@@ -237,4 +124,3 @@ Deno.serve(async (req: Request) => {
     return errorResponse(`ASR 失败: ${err instanceof Error ? err.message : String(err)}`);
   }
 });
-

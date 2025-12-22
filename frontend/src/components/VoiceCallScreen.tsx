@@ -71,7 +71,54 @@ export default function VoiceCallScreen({
     isRecordingRef.current = false;
   }, []);
 
-  // 发送音频到火山引擎 ASR
+  // 使用浏览器 Web Speech API 作为备选
+  const useBrowserASR = useCallback(() => {
+    if (typeof window === "undefined") return;
+    
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn("浏览器不支持语音识别");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "zh-CN";
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          setTranscript(event.results[i][0].transcript);
+        }
+      }
+      if (finalTranscript) {
+        setTranscript(finalTranscript);
+        onSendMessage(finalTranscript);
+        setStatus("processing");
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("浏览器语音识别错误:", event.error);
+      if (event.error !== "no-speech" && !isMuted) {
+        setTimeout(() => startRecording(), 1000);
+      }
+    };
+
+    recognition.onend = () => {
+      // 识别结束
+    };
+
+    setStatus("listening");
+    setTranscript("");
+    recognition.start();
+  }, [onSendMessage, isMuted]);
+
+  // 发送音频到火山引擎 ASR（带回退）
   const sendToASR = async (audioBlob: Blob) => {
     try {
       setStatus("processing");
@@ -93,18 +140,15 @@ export default function VoiceCallScreen({
         },
         body: JSON.stringify({
           audio: base64,
-          format: "webm", // MediaRecorder 默认格式
+          format: "webm",
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error("ASR 失败:", errorData);
-        // 回退到重新监听
-        setTranscript("识别失败，请重试");
-        setTimeout(() => {
-          if (!isMuted) startRecording();
-        }, 1500);
+        console.error("火山引擎 ASR 失败，回退到浏览器:", errorData);
+        // 回退到浏览器 ASR
+        useBrowserASR();
         return;
       }
 
@@ -113,7 +157,6 @@ export default function VoiceCallScreen({
 
       if (recognizedText) {
         setTranscript(recognizedText);
-        // 发送消息
         onSendMessage(recognizedText);
       } else {
         setTranscript("未检测到语音");
@@ -122,11 +165,9 @@ export default function VoiceCallScreen({
         }, 1000);
       }
     } catch (error) {
-      console.error("ASR 请求失败:", error);
-      setTranscript("网络错误，请重试");
-      setTimeout(() => {
-        if (!isMuted) startRecording();
-      }, 1500);
+      console.error("ASR 请求失败，回退到浏览器:", error);
+      // 回退到浏览器 ASR
+      useBrowserASR();
     }
   };
 
