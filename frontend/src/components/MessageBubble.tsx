@@ -21,7 +21,7 @@ export default function MessageBubble({
   content,
   isLatest = false,
   autoSpeak = false,
-  voice = "chunhou", // 默认醇厚男声
+  voice = "xinwen", // 默认新闻男声
 }: MessageBubbleProps) {
   const isAssistant = role === "assistant";
   const [isSpeaking, setIsSpeaking] = useState(false);

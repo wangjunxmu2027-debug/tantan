@@ -8,12 +8,14 @@ const TTS_TOKEN = Deno.env.get("VOLC_TTS_TOKEN") || "";
 // 音色配置 - 火山引擎语音合成
 // 参考: https://www.volcengine.com/docs/6561/97465
 const VOICE_TYPES: Record<string, string> = {
-  "qingxin": "BV001_streaming",        // 通用女声
-  "nvsheng": "BV001_streaming",        // 通用女声
-  "nansheng": "BV002_streaming",       // 通用男声
-  "sichuan": "BV406_streaming",        // 四川话女声
+  "xinwen": "BV700_streaming",         // 新闻男声（成熟稳重）
+  "jilupian": "BV701_streaming",       // 纪录片男声（低沉醇厚）
   "chunhou": "BV002_streaming",        // 醇厚男声
-  "default": "BV002_streaming",        // 默认使用醇厚男声
+  "nansheng": "BV002_streaming",       // 阳光男声
+  "qingxin": "BV001_streaming",        // 清新女声
+  "nvsheng": "BV001_streaming",        // 温柔女声
+  "sichuan": "BV406_streaming",        // 四川话女声
+  "default": "BV700_streaming",        // 默认使用新闻男声
 };
 
 // 调用火山引擎语音合成 API

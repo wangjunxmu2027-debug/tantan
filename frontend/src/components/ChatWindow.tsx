@@ -12,6 +12,8 @@ const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
 
 // 可选的声音列表
 const VOICE_OPTIONS = [
+  { value: "xinwen", label: "新闻男声", icon: "📺" },
+  { value: "jilupian", label: "纪录片男声", icon: "🎬" },
   { value: "chunhou", label: "醇厚男声", icon: "🎙️" },
   { value: "nansheng", label: "阳光男声", icon: "👨" },
   { value: "nvsheng", label: "温柔女声", icon: "👩" },
@@ -36,7 +38,7 @@ export default function ChatWindow({
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
   const [showRTC, setShowRTC] = useState(false); // 是否显示 RTC 语音通话
-  const [selectedVoice, setSelectedVoice] = useState("chunhou"); // 选择的声音
+  const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 默认新闻男声
   const [showVoiceMenu, setShowVoiceMenu] = useState(false); // 是否显示声音选择菜单
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
