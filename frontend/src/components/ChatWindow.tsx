@@ -9,6 +9,8 @@ import { type Message } from "@/lib/api";
 
 // 懒加载 RTC 组件
 const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
+// 懒加载语音通话全屏组件
+const VoiceCallScreen = lazy(() => import("./VoiceCallScreen"));
 
 // 可选的声音列表
 const VOICE_OPTIONS = [
@@ -37,9 +39,9 @@ export default function ChatWindow({
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
-  const [showRTC, setShowRTC] = useState(false); // 是否显示 RTC 语音通话
   const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 默认新闻男声
   const [showVoiceMenu, setShowVoiceMenu] = useState(false); // 是否显示声音选择菜单
+  const [showVoiceCall, setShowVoiceCall] = useState(false); // 是否显示语音通话全屏
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const voiceMenuRef = useRef<HTMLDivElement>(null);
@@ -248,19 +250,17 @@ export default function ChatWindow({
               </AnimatePresence>
             </div>
 
-            {/* RTC 语音通话按钮 */}
+            {/* 语音通话按钮 - 打开全屏语音界面 */}
             {sessionId && !isCompleted && (
               <button
-                onClick={() => setShowRTC(!showRTC)}
+                onClick={() => setShowVoiceCall(true)}
                 className={`
                   w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
                   transition-all duration-300 flex-shrink-0
-                  ${showRTC 
-                    ? 'bg-green-100 text-green-600' 
-                    : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-500'
-                  }
+                  bg-gradient-to-r from-green-400 to-emerald-500 text-white
+                  hover:from-green-500 hover:to-emerald-600 shadow-md
                 `}
-                title={showRTC ? '关闭语音通话' : '开启语音通话'}
+                title="开启语音通话"
               >
                 <Phone className="w-4 h-4 md:w-5 md:h-5" />
               </button>
@@ -323,33 +323,23 @@ export default function ChatWindow({
             按 Enter 发送，Shift + Enter 换行 | 支持语音输入
           </p>
 
-          {/* RTC 语音通话面板 */}
-          <AnimatePresence>
-            {showRTC && sessionId && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 pt-4 border-t border-gray-100"
-              >
-                <Suspense fallback={
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                  </div>
-                }>
-                  <RTCVoiceChat 
-                    sessionId={sessionId}
-                    onTranscript={(text, role) => {
-                      // 可以在这里处理 RTC 的语音转文字结果
-                      console.log(`[${role}] ${text}`);
-                    }}
-                  />
-                </Suspense>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </div>
+
+      {/* 全屏语音通话界面 */}
+      {sessionId && (
+        <Suspense fallback={null}>
+          <VoiceCallScreen
+            isOpen={showVoiceCall}
+            onClose={() => setShowVoiceCall(false)}
+            sessionId={sessionId}
+            onSendMessage={onSendMessage}
+            latestAIMessage={messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
+            isLoading={isLoading}
+            voice={selectedVoice}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
