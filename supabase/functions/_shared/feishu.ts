@@ -74,8 +74,27 @@ async function getAccessToken(): Promise<string | null> {
 function parseQuestions(text: unknown): string[] {
   if (!text) return [];
 
+  console.log("原始问题数据类型:", typeof text);
+  console.log("原始问题数据:", JSON.stringify(text).substring(0, 500));
+
+  // 飞书多维表格的文本字段可能是数组格式 [{type: "text", text: "..."}]
   if (Array.isArray(text)) {
-    return text.map((q) => String(q).trim()).filter(Boolean);
+    // 可能是飞书的富文本格式
+    const extracted = text.map((item) => {
+      if (typeof item === "object" && item !== null && "text" in item) {
+        return String(item.text).trim();
+      }
+      return String(item).trim();
+    }).filter(Boolean);
+    
+    // 如果提取后是单个长字符串，按换行分割
+    if (extracted.length === 1 && extracted[0].includes("\n")) {
+      return extracted[0].split("\n")
+        .map(line => line.trim().replace(/^[\d]+[.、)）\s]+/, "").trim())
+        .filter(Boolean);
+    }
+    
+    return extracted;
   }
 
   if (typeof text === "string") {
