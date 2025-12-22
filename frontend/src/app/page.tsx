@@ -96,6 +96,7 @@ export default function Home() {
                 onSendMessage={handleSendMessage}
                 isLoading={isLoading}
                 stage={stage}
+                sessionId={sessionId || undefined}
               />
             </main>
           </motion.div>

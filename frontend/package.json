@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@volcengine/rtc": "^4.68.0",
     "axios": "^1.6.7",
     "clsx": "^2.1.0",
     "framer-motion": "^11.0.3",
@@ -31,4 +32,3 @@
     "typescript": "5.3.3"
   }
 }
-

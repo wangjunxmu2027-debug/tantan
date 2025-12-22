@@ -1,17 +1,21 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Volume2, VolumeX } from "lucide-react";
+import { Send, Loader2, Volume2, VolumeX, Phone } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
+
+// 懒加载 RTC 组件
+const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
 
 interface ChatWindowProps {
   messages: Message[];
   onSendMessage: (content: string) => void;
   isLoading: boolean;
   stage: string;
+  sessionId?: string; // 添加 sessionId 用于 RTC
 }
 
 export default function ChatWindow({
@@ -19,9 +23,11 @@ export default function ChatWindow({
   onSendMessage,
   isLoading,
   stage,
+  sessionId,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
+  const [showRTC, setShowRTC] = useState(false); // 是否显示 RTC 语音通话
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -153,6 +159,24 @@ export default function ChatWindow({
               )}
             </button>
 
+            {/* RTC 语音通话按钮 */}
+            {sessionId && !isCompleted && (
+              <button
+                onClick={() => setShowRTC(!showRTC)}
+                className={`
+                  w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+                  transition-all duration-300 flex-shrink-0
+                  ${showRTC 
+                    ? 'bg-green-100 text-green-600' 
+                    : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-500'
+                  }
+                `}
+                title={showRTC ? '关闭语音通话' : '开启语音通话'}
+              >
+                <Phone className="w-4 h-4 md:w-5 md:h-5" />
+              </button>
+            )}
+
             {/* 文字输入框 */}
             <div className="flex-1 relative flex items-center">
               <textarea
@@ -209,6 +233,32 @@ export default function ChatWindow({
           <p className="hidden md:block text-xs text-gray-400 mt-2 text-center">
             按 Enter 发送，Shift + Enter 换行 | 支持语音输入
           </p>
+
+          {/* RTC 语音通话面板 */}
+          <AnimatePresence>
+            {showRTC && sessionId && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 pt-4 border-t border-gray-100"
+              >
+                <Suspense fallback={
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  </div>
+                }>
+                  <RTCVoiceChat 
+                    sessionId={sessionId}
+                    onTranscript={(text, role) => {
+                      // 可以在这里处理 RTC 的语音转文字结果
+                      console.log(`[${role}] ${text}`);
+                    }}
+                  />
+                </Suspense>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>
