@@ -193,3 +193,4 @@ class InterviewSummaryResponse(BaseModel):
     answers: List[Dict[str, Any]]
     user_info: Dict[str, Any]
 
+

@@ -70,3 +70,4 @@ def get_extract_info_prompt(user_input: str) -> str:
     """获取信息提取prompt"""
     return EXTRACT_INFO_PROMPT.format(user_input=user_input)
 
+
