@@ -1,12 +1,14 @@
 import axios from "axios";
 
-// API基础URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// API基础URL - 使用 Supabase Edge Functions
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
 
 // 创建axios实例
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000, // 60秒超时（LLM响应可能较慢）
+  timeout: 120000, // 120秒超时（LLM响应可能较慢）
   headers: {
     "Content-Type": "application/json",
   },
@@ -69,15 +71,13 @@ export interface InterviewSummary {
   };
 }
 
-// API方法
+// API方法 - 适配 Supabase Edge Functions 路径
 export const interviewApi = {
   /**
    * 创建新的访谈会话
    */
   async createSession(): Promise<CreateSessionResponse> {
-    const response = await api.post<CreateSessionResponse>(
-      "/api/interview/create"
-    );
+    const response = await api.post<CreateSessionResponse>("/interview-create");
     return response.data;
   },
 
@@ -89,14 +89,11 @@ export const interviewApi = {
     content: string,
     messageType: "text" | "voice" = "text"
   ): Promise<SendMessageResponse> {
-    const response = await api.post<SendMessageResponse>(
-      "/api/interview/message",
-      {
-        session_id: sessionId,
-        content,
-        message_type: messageType,
-      }
-    );
+    const response = await api.post<SendMessageResponse>("/interview-message", {
+      session_id: sessionId,
+      content,
+      message_type: messageType,
+    });
     return response.data;
   },
 
@@ -105,7 +102,7 @@ export const interviewApi = {
    */
   async getSessionStatus(sessionId: string): Promise<SessionStatus> {
     const response = await api.get<SessionStatus>(
-      `/api/interview/${sessionId}/status`
+      `/interview-status?session_id=${sessionId}`
     );
     return response.data;
   },
@@ -115,18 +112,19 @@ export const interviewApi = {
    */
   async getSummary(sessionId: string): Promise<InterviewSummary> {
     const response = await api.get<InterviewSummary>(
-      `/api/interview/${sessionId}/summary`
+      `/interview-summary?session_id=${sessionId}`
     );
     return response.data;
   },
 
   /**
-   * 健康检查
+   * 健康检查 - 通过创建会话接口验证
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await api.get("/health");
-      return response.data.status === "healthy";
+      // Edge Functions 没有专门的健康检查接口，使用 OPTIONS 请求测试
+      const response = await api.options("/interview-create");
+      return response.status === 200 || response.status === 204;
     } catch {
       return false;
     }
@@ -134,5 +132,3 @@ export const interviewApi = {
 };
 
 export default api;
-
-
