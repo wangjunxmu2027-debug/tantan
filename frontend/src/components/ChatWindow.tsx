@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, Volume2, VolumeX } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
@@ -21,6 +21,7 @@ export default function ChatWindow({
   stage,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
+  const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -73,6 +74,7 @@ export default function ChatWindow({
                 role={message.role}
                 content={message.content}
                 isLatest={index === messages.length - 1}
+                autoSpeak={autoSpeak}
               />
             </motion.div>
           ))}
@@ -124,6 +126,32 @@ export default function ChatWindow({
           <div className="flex items-center gap-2 md:gap-3">
             {/* 语音输入按钮 */}
             <VoiceInput onResult={handleVoiceResult} disabled={isCompleted} />
+
+            {/* 自动朗读开关 */}
+            <button
+              onClick={() => {
+                if (autoSpeak) {
+                  // 关闭时停止当前播放
+                  window.speechSynthesis?.cancel();
+                }
+                setAutoSpeak(!autoSpeak);
+              }}
+              className={`
+                w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+                transition-all duration-300 flex-shrink-0
+                ${autoSpeak 
+                  ? 'bg-purple-100 text-purple-600' 
+                  : 'bg-gray-100 text-gray-400'
+                }
+              `}
+              title={autoSpeak ? '关闭自动朗读' : '开启自动朗读'}
+            >
+              {autoSpeak ? (
+                <Volume2 className="w-4 h-4 md:w-5 md:h-5" />
+              ) : (
+                <VolumeX className="w-4 h-4 md:w-5 md:h-5" />
+              )}
+            </button>
 
             {/* 文字输入框 */}
             <div className="flex-1 relative flex items-center">

@@ -1,21 +1,76 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { motion } from "framer-motion";
-import { User } from "lucide-react";
+import { User, Volume2, VolumeX } from "lucide-react";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
   content: string;
   isLatest?: boolean;
+  autoSpeak?: boolean;
 }
 
 export default function MessageBubble({
   role,
   content,
   isLatest = false,
+  autoSpeak = false,
 }: MessageBubbleProps) {
   const isAssistant = role === "assistant";
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [canSpeak, setCanSpeak] = useState(false);
+
+  // 检查是否支持语音合成
+  useEffect(() => {
+    setCanSpeak('speechSynthesis' in window);
+  }, []);
+
+  // 自动朗读最新的 AI 消息
+  useEffect(() => {
+    if (isAssistant && isLatest && autoSpeak && canSpeak && content) {
+      const timer = setTimeout(() => {
+        speak();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isAssistant, isLatest, autoSpeak, canSpeak, content]);
+
+  // 朗读文本
+  const speak = () => {
+    if (!canSpeak) return;
+    
+    window.speechSynthesis.cancel();
+    
+    const cleanedText = content
+      .replace(/\*\*/g, '')
+      .replace(/\*/g, '')
+      .replace(/#{1,6}\s/g, '')
+      .replace(/\n{2,}/g, '。')
+      .replace(/\n/g, '，');
+
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const zhVoice = voices.find(v => v.lang.includes('zh'));
+    if (zhVoice) utterance.voice = zhVoice;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // 停止朗读
+  const stopSpeak = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
 
   return (
     <div
@@ -100,6 +155,27 @@ export default function MessageBubble({
           </p>
         )}
       </motion.div>
+
+      {/* AI 消息的语音播放按钮 */}
+      {isAssistant && canSpeak && (
+        <button
+          onClick={isSpeaking ? stopSpeak : speak}
+          className={`
+            self-start mt-1 p-1.5 rounded-full transition-all duration-200 flex-shrink-0
+            ${isSpeaking 
+              ? 'bg-purple-100 text-purple-600' 
+              : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+            }
+          `}
+          title={isSpeaking ? '停止播放' : '播放语音'}
+        >
+          {isSpeaking ? (
+            <Volume2 className="w-4 h-4 animate-pulse" />
+          ) : (
+            <Volume2 className="w-4 h-4" />
+          )}
+        </button>
+      )}
     </div>
   );
 }
