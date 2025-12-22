@@ -13,6 +13,7 @@ interface MessageBubbleProps {
   content: string;
   isLatest?: boolean;
   autoSpeak?: boolean;
+  voice?: string; // 声音类型
 }
 
 export default function MessageBubble({
@@ -20,6 +21,7 @@ export default function MessageBubble({
   content,
   isLatest = false,
   autoSpeak = false,
+  voice = "chunhou", // 默认醇厚男声
 }: MessageBubbleProps) {
   const isAssistant = role === "assistant";
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -79,7 +81,7 @@ export default function MessageBubble({
         },
         body: JSON.stringify({ 
           text: cleanedText,
-          voice: "chunhou"  // 醇厚男声
+          voice: voice, // 使用选择的声音
         }),
       });
 
