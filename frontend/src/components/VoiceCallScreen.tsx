@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Mic, MicOff, X, Volume2 } from "lucide-react";
 
-// TTS API 地址
-const TTS_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
+// API 地址
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
 
 interface VoiceCallScreenProps {
   isOpen: boolean;
@@ -33,82 +33,221 @@ export default function VoiceCallScreen({
   const [transcript, setTranscript] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
   
-  const recognitionRef = useRef<any>(null);
+  // 音频播放相关
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  
+  // 录音相关
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isRecordingRef = useRef(false);
+  
+  // 音量检测相关
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const micAudioContextRef = useRef<AudioContext | null>(null);
 
-  // 初始化语音识别
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = "zh-CN";
-
-        recognition.onresult = (event: any) => {
-          let finalTranscript = "";
-          let interimTranscript = "";
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript;
-            } else {
-              interimTranscript += transcript;
-            }
-          }
-
-          if (finalTranscript) {
-            setTranscript(finalTranscript);
-            // 发送消息
-            onSendMessage(finalTranscript);
-            setStatus("processing");
-          } else {
-            setTranscript(interimTranscript);
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          console.error("语音识别错误:", event.error);
-          if (event.error !== "no-speech") {
-            setStatus("idle");
-          }
-        };
-
-        recognition.onend = () => {
-          if (status === "listening" && !isMuted) {
-            // 自动重启
-            try {
-              recognition.start();
-            } catch (e) {
-              console.error("重启语音识别失败:", e);
-            }
-          }
-        };
-
-        recognitionRef.current = recognition;
-      }
+  // 清理函数
+  const cleanup = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    isRecordingRef.current = false;
+  }, []);
 
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
+  // 发送音频到火山引擎 ASR
+  const sendToASR = async (audioBlob: Blob) => {
+    try {
+      setStatus("processing");
+      setTranscript("识别中...");
+
+      // 转换为 base64
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ""
+        )
+      );
+
+      const response = await fetch(`${API_URL}/asr`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          audio: base64,
+          format: "webm", // MediaRecorder 默认格式
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("ASR 失败:", errorData);
+        // 回退到重新监听
+        setTranscript("识别失败，请重试");
+        setTimeout(() => {
+          if (!isMuted) startRecording();
+        }, 1500);
+        return;
       }
-    };
-  }, [onSendMessage, status, isMuted]);
+
+      const result = await response.json();
+      const recognizedText = result.text?.trim();
+
+      if (recognizedText) {
+        setTranscript(recognizedText);
+        // 发送消息
+        onSendMessage(recognizedText);
+      } else {
+        setTranscript("未检测到语音");
+        setTimeout(() => {
+          if (!isMuted) startRecording();
+        }, 1000);
+      }
+    } catch (error) {
+      console.error("ASR 请求失败:", error);
+      setTranscript("网络错误，请重试");
+      setTimeout(() => {
+        if (!isMuted) startRecording();
+      }, 1500);
+    }
+  };
+
+  // 开始录音
+  const startRecording = useCallback(async () => {
+    if (isMuted || isRecordingRef.current) return;
+
+    try {
+      // 获取麦克风权限
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 16000,
+        } 
+      });
+      streamRef.current = stream;
+
+      // 创建音频分析器检测音量
+      if (!micAudioContextRef.current) {
+        micAudioContextRef.current = new AudioContext();
+      }
+      const source = micAudioContextRef.current.createMediaStreamSource(stream);
+      const analyser = micAudioContextRef.current.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      micAnalyserRef.current = analyser;
+
+      // 创建 MediaRecorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4",
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      isRecordingRef.current = true;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        if (audioChunksRef.current.length > 0) {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          // 只处理有效录音（至少有一定大小）
+          if (audioBlob.size > 1000) {
+            sendToASR(audioBlob);
+          } else {
+            // 太短，重新开始录音
+            if (!isMuted) {
+              setTimeout(() => startRecording(), 500);
+            }
+          }
+        }
+        isRecordingRef.current = false;
+      };
+
+      // 开始录音
+      mediaRecorder.start(100); // 每 100ms 收集一次数据
+      setStatus("listening");
+      setTranscript("");
+
+      // 监测音量并检测静音
+      let silenceStart = 0;
+      const SILENCE_THRESHOLD = 10; // 音量阈值
+      const SILENCE_DURATION = 1500; // 静音持续时间（毫秒）
+
+      const checkAudioLevel = () => {
+        if (!micAnalyserRef.current || !isRecordingRef.current) return;
+
+        const dataArray = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
+        micAnalyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+        // 更新可视化音量
+        setAudioLevel(Math.min(average / 100, 1));
+
+        // 检测静音
+        if (average < SILENCE_THRESHOLD) {
+          if (silenceStart === 0) {
+            silenceStart = Date.now();
+          } else if (Date.now() - silenceStart > SILENCE_DURATION) {
+            // 检测到静音，停止录音
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+              mediaRecorderRef.current.stop();
+              if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+              }
+            }
+            return;
+          }
+        } else {
+          silenceStart = 0;
+        }
+
+        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+      };
+
+      checkAudioLevel();
+
+    } catch (error) {
+      console.error("无法访问麦克风:", error);
+      setTranscript("无法访问麦克风");
+      setStatus("idle");
+    }
+  }, [isMuted, onSendMessage]);
+
+  // 停止录音
+  const stopRecording = useCallback(() => {
+    cleanup();
+    setStatus("idle");
+    setAudioLevel(0);
+  }, [cleanup]);
 
   // 监听 AI 回复并播放语音
   useEffect(() => {
     if (latestAIMessage && status === "processing" && !isLoading) {
       playTTS(latestAIMessage);
     }
-  }, [latestAIMessage, isLoading]);
+  }, [latestAIMessage, isLoading, status]);
 
   // 播放 TTS
   const playTTS = async (text: string) => {
@@ -123,7 +262,7 @@ export default function VoiceCallScreen({
         .replace(/\n/g, '，')
         .trim();
 
-      const response = await fetch(`${TTS_API_URL}/tts`, {
+      const response = await fetch(`${API_URL}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: cleanedText, voice }),
@@ -131,9 +270,9 @@ export default function VoiceCallScreen({
 
       const contentType = response.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
-        // fallback
+        // fallback - 无法播放，直接开始录音
         setStatus("listening");
-        startListening();
+        startRecording();
         return;
       }
 
@@ -147,15 +286,22 @@ export default function VoiceCallScreen({
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
       }
-      const source = audioContextRef.current.createMediaElementSource(audio);
-      const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(audioContextRef.current.destination);
-      analyserRef.current = analyser;
+      
+      // 检查是否已经连接过
+      try {
+        const source = audioContextRef.current.createMediaElementSource(audio);
+        const analyser = audioContextRef.current.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyser.connect(audioContextRef.current.destination);
+        analyserRef.current = analyser;
+      } catch (e) {
+        // 如果已经连接过，忽略错误
+        console.log("音频源已连接");
+      }
 
       // 开始分析音频
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const dataArray = new Uint8Array(128);
       const updateLevel = () => {
         if (analyserRef.current && status === "speaking") {
           analyserRef.current.getByteFrequencyData(dataArray);
@@ -173,73 +319,63 @@ export default function VoiceCallScreen({
         setAudioLevel(0);
         URL.revokeObjectURL(audioUrl);
         setStatus("listening");
-        startListening();
+        // 开始下一轮录音
+        startRecording();
       };
 
       await audio.play();
     } catch (error) {
       console.error("TTS 播放失败:", error);
       setStatus("listening");
-      startListening();
+      startRecording();
     }
   };
-
-  // 开始监听
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isMuted) {
-      try {
-        recognitionRef.current.start();
-        setStatus("listening");
-        setTranscript("");
-      } catch (e) {
-        console.error("启动语音识别失败:", e);
-      }
-    }
-  }, [isMuted]);
-
-  // 停止监听
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-    }
-    setStatus("idle");
-  }, []);
 
   // 切换静音
   const toggleMute = () => {
     if (isMuted) {
       setIsMuted(false);
-      startListening();
+      startRecording();
     } else {
       setIsMuted(true);
-      stopListening();
+      stopRecording();
     }
   };
 
   // 关闭通话
   const handleClose = () => {
-    stopListening();
+    stopRecording();
     if (audioRef.current) {
       audioRef.current.pause();
     }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    cleanup();
     onClose();
   };
 
-  // 打开时自动开始监听
+  // 打开时自动开始录音
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        startListening();
+    if (isOpen && !isMuted) {
+      const timer = setTimeout(() => {
+        startRecording();
       }, 500);
-    } else {
-      stopListening();
+      return () => clearTimeout(timer);
+    } else if (!isOpen) {
+      stopRecording();
     }
-  }, [isOpen, startListening, stopListening]);
+  }, [isOpen]);
+
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      cleanup();
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (micAudioContextRef.current) {
+        micAudioContextRef.current.close();
+      }
+    };
+  }, [cleanup]);
 
   // 获取状态文本
   const getStatusText = () => {
@@ -247,7 +383,7 @@ export default function VoiceCallScreen({
       case "listening":
         return transcript || "你可以开始说话";
       case "processing":
-        return "探探正在思考...";
+        return transcript || "探探正在思考...";
       case "speaking":
         return "探探正在回答...";
       default:
@@ -272,160 +408,161 @@ export default function VoiceCallScreen({
         bottom: 0,
       }}
     >
-          {/* 头部 */}
-          <div className="flex items-center justify-between p-4 pt-12">
-            <div className="w-10" />
-            <div className="text-gray-600 font-medium">语音访谈</div>
-            <button
-              onClick={handleClose}
-              className="w-10 h-10 flex items-center justify-center text-gray-500"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+      {/* 头部 */}
+      <div className="flex items-center justify-between p-4 pt-12">
+        <div className="w-10" />
+        <div className="text-gray-600 font-medium">语音访谈</div>
+        <button
+          onClick={handleClose}
+          className="w-10 h-10 flex items-center justify-center text-gray-500"
+        >
+          <X className="w-6 h-6" />
+        </button>
+      </div>
 
-          {/* 中间区域 - 声纹动效 */}
-          <div className="flex-1 flex flex-col items-center justify-center">
-            {/* 声纹圆环 */}
-            <div className="relative">
-              {/* 外层波纹 */}
-              {[...Array(3)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="absolute inset-0 rounded-full"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(233, 213, 255, 0.4) 0%, rgba(196, 181, 253, 0.3) 100%)",
-                  }}
-                  animate={{
-                    scale: status === "speaking" || status === "listening" 
-                      ? [1, 1.2 + audioLevel * 0.5 + i * 0.15, 1] 
-                      : 1,
-                    opacity: status === "speaking" || status === "listening"
-                      ? [0.6, 0.2, 0.6]
-                      : 0.3,
-                  }}
-                  transition={{
-                    duration: 1.5,
-                    repeat: Infinity,
-                    delay: i * 0.3,
-                    ease: "easeInOut",
-                  }}
-                />
-              ))}
+      {/* 中间区域 - 声纹动效 */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        {/* 声纹圆环 */}
+        <div className="relative">
+          {/* 外层波纹 */}
+          {[...Array(3)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute inset-0 rounded-full"
+              style={{
+                background: "linear-gradient(135deg, rgba(233, 213, 255, 0.4) 0%, rgba(196, 181, 253, 0.3) 100%)",
+              }}
+              animate={{
+                scale: status === "speaking" || status === "listening" 
+                  ? [1, 1.2 + audioLevel * 0.5 + i * 0.15, 1] 
+                  : 1,
+                opacity: status === "speaking" || status === "listening"
+                  ? [0.6, 0.2, 0.6]
+                  : 0.3,
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                delay: i * 0.3,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
 
-              {/* 主圆形 */}
+          {/* 主圆形 */}
+          <motion.div
+            className="relative w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden shadow-2xl"
+            style={{
+              background: "linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #ce93d8 100%)",
+            }}
+            animate={{
+              scale: (status === "speaking" || status === "listening") ? 1 + audioLevel * 0.1 : 1,
+            }}
+            transition={{ duration: 0.1 }}
+          >
+            {/* 探探头像 */}
+            <img
+              src="/tantan-avatar.png"
+              alt="探探"
+              className="w-full h-full object-cover"
+              style={{ opacity: 0.9 }}
+            />
+
+            {/* 声纹叠加效果 */}
+            {(status === "speaking" || status === "listening") && (
               <motion.div
-                className="relative w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden shadow-2xl"
+                className="absolute inset-0"
                 style={{
-                  background: "linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #ce93d8 100%)",
+                  background: `radial-gradient(circle, rgba(147, 51, 234, ${audioLevel * 0.3}) 0%, transparent 70%)`,
                 }}
-                animate={{
-                  scale: status === "speaking" ? 1 + audioLevel * 0.1 : 1,
-                }}
-                transition={{ duration: 0.1 }}
-              >
-                {/* 探探头像 */}
-                <img
-                  src="/tantan-avatar.png"
-                  alt="探探"
-                  className="w-full h-full object-cover"
-                  style={{ opacity: 0.9 }}
-                />
+              />
+            )}
+          </motion.div>
+        </div>
 
-                {/* 声纹叠加效果 */}
-                {status === "speaking" && (
-                  <motion.div
-                    className="absolute inset-0"
-                    style={{
-                      background: `radial-gradient(circle, rgba(147, 51, 234, ${audioLevel * 0.3}) 0%, transparent 70%)`,
-                    }}
-                  />
-                )}
-              </motion.div>
-            </div>
+        {/* 状态指示点 */}
+        <div className="flex gap-2 mt-12">
+          {[...Array(3)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="w-2.5 h-2.5 rounded-full bg-gray-400"
+              animate={{
+                scale: status === "listening" || status === "speaking" || status === "processing"
+                  ? [1, 1.3, 1]
+                  : 1,
+                opacity: [0.4, 1, 0.4],
+              }}
+              transition={{
+                duration: 1,
+                repeat: Infinity,
+                delay: i * 0.2,
+              }}
+            />
+          ))}
+        </div>
 
-            {/* 状态指示点 */}
-            <div className="flex gap-2 mt-12">
-              {[...Array(3)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="w-2.5 h-2.5 rounded-full bg-gray-400"
-                  animate={{
-                    scale: status === "listening" || status === "speaking" || status === "processing"
-                      ? [1, 1.3, 1]
-                      : 1,
-                    opacity: [0.4, 1, 0.4],
-                  }}
-                  transition={{
-                    duration: 1,
-                    repeat: Infinity,
-                    delay: i * 0.2,
-                  }}
-                />
-              ))}
-            </div>
+        {/* 状态文本 */}
+        <motion.p
+          className="mt-6 text-gray-600 text-lg text-center px-8 max-w-md"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          {getStatusText()}
+        </motion.p>
+      </div>
 
-            {/* 状态文本 */}
-            <motion.p
-              className="mt-6 text-gray-600 text-lg text-center px-8 max-w-md"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              {getStatusText()}
-            </motion.p>
-          </div>
+      {/* 底部控制栏 */}
+      <div className="pb-12 pt-6">
+        <div className="flex justify-center items-center gap-6">
+          {/* 麦克风按钮 */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={toggleMute}
+            className={`
+              w-16 h-16 rounded-full flex items-center justify-center shadow-lg
+              ${isMuted 
+                ? "bg-gray-200 text-gray-500" 
+                : status === "listening" 
+                  ? "bg-green-100 text-green-600" 
+                  : "bg-white text-gray-700"
+              }
+            `}
+          >
+            {isMuted ? (
+              <MicOff className="w-7 h-7" />
+            ) : (
+              <Mic className="w-7 h-7" />
+            )}
+          </motion.button>
 
-          {/* 底部控制栏 */}
-          <div className="pb-12 pt-6">
-            <div className="flex justify-center items-center gap-6">
-              {/* 麦克风按钮 */}
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={toggleMute}
-                className={`
-                  w-16 h-16 rounded-full flex items-center justify-center shadow-lg
-                  ${isMuted 
-                    ? "bg-gray-200 text-gray-500" 
-                    : "bg-white text-gray-700"
-                  }
-                `}
-              >
-                {isMuted ? (
-                  <MicOff className="w-7 h-7" />
-                ) : (
-                  <Mic className="w-7 h-7" />
-                )}
-              </motion.button>
+          {/* 声音指示 */}
+          <motion.div
+            className={`
+              w-16 h-16 rounded-full flex items-center justify-center shadow-lg
+              ${status === "speaking" ? "bg-purple-100 text-purple-600" : "bg-white text-gray-400"}
+            `}
+            animate={{
+              scale: status === "speaking" ? [1, 1.1, 1] : 1,
+            }}
+            transition={{ duration: 0.5, repeat: status === "speaking" ? Infinity : 0 }}
+          >
+            <Volume2 className="w-7 h-7" />
+          </motion.div>
 
-              {/* 声音指示 */}
-              <motion.div
-                className={`
-                  w-16 h-16 rounded-full flex items-center justify-center shadow-lg
-                  ${status === "speaking" ? "bg-purple-100 text-purple-600" : "bg-white text-gray-400"}
-                `}
-                animate={{
-                  scale: status === "speaking" ? [1, 1.1, 1] : 1,
-                }}
-                transition={{ duration: 0.5, repeat: status === "speaking" ? Infinity : 0 }}
-              >
-                <Volume2 className="w-7 h-7" />
-              </motion.div>
+          {/* 结束按钮 */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleClose}
+            className="w-16 h-16 rounded-full flex items-center justify-center bg-red-100 text-red-500 shadow-lg"
+          >
+            <X className="w-7 h-7" />
+          </motion.button>
+        </div>
 
-              {/* 结束按钮 */}
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={handleClose}
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-red-100 text-red-500 shadow-lg"
-              >
-                <X className="w-7 h-7" />
-              </motion.button>
-            </div>
-
-            <p className="text-center text-gray-400 text-sm mt-4">
-              内容由 AI 生成
-            </p>
-          </div>
-        </motion.div>
+        <p className="text-center text-gray-400 text-sm mt-4">
+          内容由 AI 生成 · 火山引擎语音识别
+        </p>
+      </div>
+    </motion.div>
   );
 }
-
