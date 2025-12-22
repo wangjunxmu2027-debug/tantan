@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatWindow from "@/components/ChatWindow";
 import Header from "@/components/Header";
 import WelcomeScreen from "@/components/WelcomeScreen";
 import { interviewApi, type Message } from "@/lib/api";
+
+// 懒加载语音通话全屏组件
+const VoiceCallScreen = lazy(() => import("@/components/VoiceCallScreen"));
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -14,6 +17,8 @@ export default function Home() {
   const [stage, setStage] = useState<string>("welcome");
   const [isStarted, setIsStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showVoiceCall, setShowVoiceCall] = useState(false); // 语音通话全屏
+  const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 选择的声音
 
   // 开始访谈
   const handleStart = async () => {
@@ -97,6 +102,8 @@ export default function Home() {
                 isLoading={isLoading}
                 stage={stage}
                 sessionId={sessionId || undefined}
+                onVoiceCallOpen={() => setShowVoiceCall(true)}
+                onVoiceChange={setSelectedVoice}
               />
             </main>
           </motion.div>
@@ -116,6 +123,21 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 全屏语音通话界面 - 在页面根级别渲染 */}
+      {sessionId && (
+        <Suspense fallback={null}>
+          <VoiceCallScreen
+            isOpen={showVoiceCall}
+            onClose={() => setShowVoiceCall(false)}
+            sessionId={sessionId}
+            onSendMessage={handleSendMessage}
+            latestAIMessage={messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
+            isLoading={isLoading}
+            voice={selectedVoice}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

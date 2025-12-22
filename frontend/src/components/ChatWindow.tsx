@@ -7,10 +7,8 @@ import MessageBubble from "./MessageBubble";
 import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
 
-// 懒加载 RTC 组件
+// 懒加载 RTC 组件（暂时保留）
 const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
-// 懒加载语音通话全屏组件
-const VoiceCallScreen = lazy(() => import("./VoiceCallScreen"));
 
 // 可选的声音列表
 const VOICE_OPTIONS = [
@@ -28,6 +26,8 @@ interface ChatWindowProps {
   isLoading: boolean;
   stage: string;
   sessionId?: string; // 添加 sessionId 用于 RTC
+  onVoiceCallOpen?: () => void; // 打开语音通话回调
+  onVoiceChange?: (voice: string) => void; // 声音变化回调
 }
 
 export default function ChatWindow({
@@ -36,12 +36,13 @@ export default function ChatWindow({
   isLoading,
   stage,
   sessionId,
+  onVoiceCallOpen,
+  onVoiceChange,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
   const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 默认新闻男声
   const [showVoiceMenu, setShowVoiceMenu] = useState(false); // 是否显示声音选择菜单
-  const [showVoiceCall, setShowVoiceCall] = useState(false); // 是否显示语音通话全屏
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const voiceMenuRef = useRef<HTMLDivElement>(null);
@@ -229,6 +230,7 @@ export default function ChatWindow({
                           key={voice.value}
                           onClick={() => {
                             setSelectedVoice(voice.value);
+                            onVoiceChange?.(voice.value);
                             setShowVoiceMenu(false);
                           }}
                           className={`
@@ -251,9 +253,9 @@ export default function ChatWindow({
             </div>
 
             {/* 语音通话按钮 - 打开全屏语音界面 */}
-            {sessionId && !isCompleted && (
+            {sessionId && !isCompleted && onVoiceCallOpen && (
               <button
-                onClick={() => setShowVoiceCall(true)}
+                onClick={onVoiceCallOpen}
                 className={`
                   w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
                   transition-all duration-300 flex-shrink-0
@@ -325,21 +327,6 @@ export default function ChatWindow({
 
         </div>
       </div>
-
-      {/* 全屏语音通话界面 */}
-      {sessionId && (
-        <Suspense fallback={null}>
-          <VoiceCallScreen
-            isOpen={showVoiceCall}
-            onClose={() => setShowVoiceCall(false)}
-            sessionId={sessionId}
-            onSendMessage={onSendMessage}
-            latestAIMessage={messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
-            isLoading={isLoading}
-            voice={selectedVoice}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }
