@@ -79,7 +79,7 @@ export default function MessageBubble({
         },
         body: JSON.stringify({ 
           text: cleanedText,
-          voice: "qingxin"
+          voice: "chunhou"  // 醇厚男声
         }),
       });
 
