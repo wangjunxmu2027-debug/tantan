@@ -64,12 +64,13 @@ export default function MessageBubble({
       audioRef.current.pause();
       audioRef.current = null;
     }
+    window.speechSynthesis?.cancel();
 
     setIsLoading(true);
     
+    const cleanedText = cleanText(content);
+    
     try {
-      const cleanedText = cleanText(content);
-      
       // 调用 TTS API
       const response = await fetch(`${TTS_API_URL}/tts`, {
         method: "POST",
@@ -78,9 +79,23 @@ export default function MessageBubble({
         },
         body: JSON.stringify({ 
           text: cleanedText,
-          voice: "qingxin" // 清新女声
+          voice: "qingxin"
         }),
       });
+
+      // 检查响应类型
+      const contentType = response.headers.get("content-type") || "";
+      
+      // 如果是 JSON 响应，说明需要 fallback
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data.fallback || data.error) {
+          console.log("TTS API 返回 fallback，使用浏览器 TTS");
+          setIsLoading(false);
+          fallbackSpeak(cleanedText);
+          return;
+        }
+      }
 
       if (!response.ok) {
         throw new Error("TTS 请求失败");
@@ -88,6 +103,15 @@ export default function MessageBubble({
 
       // 获取音频数据
       const audioBlob = await response.blob();
+      
+      // 检查音频大小（太小说明有问题）
+      if (audioBlob.size < 100) {
+        console.log("音频数据太小，使用浏览器 TTS");
+        setIsLoading(false);
+        fallbackSpeak(cleanedText);
+        return;
+      }
+      
       const audioUrl = URL.createObjectURL(audioBlob);
       
       // 创建音频元素播放
@@ -109,6 +133,7 @@ export default function MessageBubble({
         console.error("音频播放错误");
         setIsSpeaking(false);
         setIsLoading(false);
+        URL.revokeObjectURL(audioUrl);
         // 降级到浏览器 TTS
         fallbackSpeak(cleanedText);
       };
@@ -119,7 +144,7 @@ export default function MessageBubble({
       console.error("TTS 错误:", error);
       setIsLoading(false);
       // 降级到浏览器 TTS
-      fallbackSpeak(cleanText(content));
+      fallbackSpeak(cleanedText);
     }
   };
 
