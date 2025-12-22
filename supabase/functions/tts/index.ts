@@ -2,94 +2,34 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { corsHeaders, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
 // 火山引擎 TTS 配置
-const ACCESS_KEY = Deno.env.get("VOLC_ACCESS_KEY") || "";
-const SECRET_KEY = Deno.env.get("VOLC_SECRET_KEY") || "";
 const TTS_APP_ID = Deno.env.get("VOLC_TTS_APP_ID") || "";
+const TTS_TOKEN = Deno.env.get("VOLC_TTS_TOKEN") || "";
 
-// 音色配置 - 火山引擎大模型语音合成
+// 音色配置 - 火山引擎语音合成
+// 参考: https://www.volcengine.com/docs/6561/97465
 const VOICE_TYPES: Record<string, string> = {
-  "qingxin": "zh_female_qingxin",      // 清新女声
-  "tianmei": "zh_female_tianmei",      // 甜美女声
-  "sichuan": "zh_female_sichuan",      // 四川女声
-  "chunhou": "zh_male_chunhou",        // 醇厚男声
-  "default": "zh_female_qingxin",
+  "qingxin": "BV001_streaming",        // 通用女声
+  "tianmei": "BV002_streaming",        // 通用男声
+  "sichuan": "BV406_streaming",        // 四川话女声
+  "chunhou": "BV002_streaming",        // 醇厚男声
+  "default": "BV001_streaming",        // 默认通用女声
 };
 
-// HMAC-SHA256 签名
-async function hmacSha256(key: Uint8Array, message: string): Promise<Uint8Array> {
-  const encoder = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message));
-  return new Uint8Array(signature);
-}
-
-// SHA256 哈希
-async function sha256(message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-// 生成火山引擎 API 签名
-async function generateVolcSignature(
-  secretKey: string,
-  date: string,
-  region: string,
-  service: string,
-  stringToSign: string
-): Promise<string> {
-  const encoder = new TextEncoder();
-  
-  // 1. kDate = HMAC_SHA256("VOLC" + SecretKey, Date)
-  const kDate = await hmacSha256(encoder.encode("VOLC" + secretKey), date);
-  
-  // 2. kRegion = HMAC_SHA256(kDate, Region)
-  const kRegion = await hmacSha256(kDate, region);
-  
-  // 3. kService = HMAC_SHA256(kRegion, Service)
-  const kService = await hmacSha256(kRegion, service);
-  
-  // 4. kSigning = HMAC_SHA256(kService, "request")
-  const kSigning = await hmacSha256(kService, "request");
-  
-  // 5. Signature = HexEncode(HMAC_SHA256(kSigning, StringToSign))
-  const signature = await hmacSha256(kSigning, stringToSign);
-  
-  return Array.from(signature)
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-// 调用火山引擎语音合成 API（大模型版）
-async function synthesizeSpeechVolcengine(
-  text: string,
-  voiceType: string = "default"
-): Promise<ArrayBuffer> {
+// 调用火山引擎语音合成 API
+async function synthesizeSpeech(text: string, voiceType: string = "default"): Promise<ArrayBuffer> {
   const voice = VOICE_TYPES[voiceType] || VOICE_TYPES["default"];
   
-  // 使用火山引擎语音合成 HTTP API
-  // 文档: https://www.volcengine.com/docs/6561/79823
-  const host = "openspeech.bytedance.com";
-  const path = "/api/v1/tts";
-  const url = `https://${host}${path}`;
+  // 火山引擎大模型语音合成 API
+  const url = "https://openspeech.bytedance.com/api/v1/tts";
   
   const requestBody = {
     app: {
       appid: TTS_APP_ID,
-      token: "access_token",
-      cluster: "volcano_tts"
+      token: TTS_TOKEN,
+      cluster: "volcano_tts"  // 标准语音合成
     },
     user: {
-      uid: "tantan_user_" + Date.now()
+      uid: "tantan_" + Date.now()
     },
     audio: {
       voice_type: voice,
@@ -108,61 +48,49 @@ async function synthesizeSpeechVolcengine(
     }
   };
 
-  const bodyStr = JSON.stringify(requestBody);
-  
-  console.log("调用火山引擎 TTS API:", { appid: TTS_APP_ID, voice, textLength: text.length });
+  console.log("火山引擎 TTS 请求:", { appid: TTS_APP_ID, voice, textLength: text.length });
 
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer;${ACCESS_KEY}`
+      "Authorization": `Bearer;${TTS_TOKEN}`
     },
-    body: bodyStr
+    body: JSON.stringify(requestBody)
   });
 
-  const result = await response.json();
-  console.log("火山引擎 TTS 响应:", { code: result.code, message: result.message });
+  const responseText = await response.text();
+  console.log("火山引擎 TTS 原始响应:", responseText.substring(0, 300));
 
+  let result;
+  try {
+    result = JSON.parse(responseText);
+  } catch (e) {
+    console.error("解析响应失败:", e);
+    throw new Error("TTS 响应解析失败");
+  }
+
+  console.log("火山引擎 TTS 响应码:", result.code, result.message);
+
+  // 成功响应码是 3000
   if (result.code !== 3000) {
-    throw new Error(`TTS 合成失败: ${result.message || result.code}`);
+    throw new Error(`TTS 失败: ${result.message || result.code}`);
   }
 
   // 解码 Base64 音频数据
   const audioData = result.data;
+  if (!audioData) {
+    throw new Error("TTS 响应无音频数据");
+  }
+
   const binaryString = atob(audioData);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   
+  console.log("音频数据大小:", bytes.length, "bytes");
   return bytes.buffer;
-}
-
-// 备用方案：使用免费的 TTS 服务
-async function synthesizeSpeechFree(text: string): Promise<ArrayBuffer> {
-  // 使用 VoiceRSS 免费 API（每天限量）
-  const apiKey = "demo"; // 免费 demo key
-  const url = `https://api.voicerss.org/?key=${apiKey}&hl=zh-cn&src=${encodeURIComponent(text)}&c=MP3`;
-  
-  const response = await fetch(url);
-  
-  if (!response.ok) {
-    throw new Error(`VoiceRSS API 失败: ${response.status}`);
-  }
-  
-  return await response.arrayBuffer();
-}
-
-// 最简单的备用方案：返回空音频让前端降级到浏览器 TTS
-function createEmptyAudio(): ArrayBuffer {
-  // 返回一个最小的有效 MP3 文件（静音）
-  // 这会触发前端的 fallback 逻辑
-  const emptyMp3 = new Uint8Array([
-    0xFF, 0xFB, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  ]);
-  return emptyMp3.buffer;
 }
 
 Deno.serve(async (req: Request) => {
@@ -181,43 +109,38 @@ Deno.serve(async (req: Request) => {
     // 限制文本长度
     const truncatedText = text.substring(0, 500);
     
-    let audioBuffer: ArrayBuffer;
-    
     // 检查是否配置了火山引擎 TTS
-    if (TTS_APP_ID && ACCESS_KEY) {
-      try {
-        console.log("尝试使用火山引擎 TTS");
-        audioBuffer = await synthesizeSpeechVolcengine(truncatedText, voice);
-      } catch (volcError) {
-        console.error("火山引擎 TTS 失败:", volcError);
-        // 返回错误信息，让前端降级到浏览器 TTS
-        return jsonResponse({ 
-          error: "TTS 暂时不可用，请使用浏览器语音",
-          fallback: true 
-        });
-      }
-    } else {
-      console.log("未配置火山引擎 TTS，返回降级提示");
+    if (!TTS_APP_ID || !TTS_TOKEN) {
+      console.log("TTS 未配置，返回 fallback");
       return jsonResponse({ 
         error: "TTS 未配置",
         fallback: true 
       });
     }
 
-    // 返回音频数据
-    return new Response(audioBuffer, {
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "audio/mpeg",
-        "Content-Length": audioBuffer.byteLength.toString(),
-      },
-    });
+    try {
+      const audioBuffer = await synthesizeSpeech(truncatedText, voice);
+      
+      // 返回音频数据
+      return new Response(audioBuffer, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "audio/mpeg",
+          "Content-Length": audioBuffer.byteLength.toString(),
+        },
+      });
+    } catch (ttsError) {
+      console.error("TTS 合成失败:", ttsError);
+      return jsonResponse({ 
+        error: `TTS 失败: ${ttsError instanceof Error ? ttsError.message : String(ttsError)}`,
+        fallback: true 
+      });
+    }
 
   } catch (err) {
     console.error("TTS 错误:", err);
-    // 返回 JSON 错误，让前端降级
     return jsonResponse({ 
-      error: `语音合成失败: ${err instanceof Error ? err.message : String(err)}`,
+      error: `请求处理失败: ${err instanceof Error ? err.message : String(err)}`,
       fallback: true 
     });
   }
