@@ -9,10 +9,11 @@ const TTS_TOKEN = Deno.env.get("VOLC_TTS_TOKEN") || "";
 // 参考: https://www.volcengine.com/docs/6561/97465
 const VOICE_TYPES: Record<string, string> = {
   "qingxin": "BV001_streaming",        // 通用女声
-  "tianmei": "BV002_streaming",        // 通用男声
+  "nvsheng": "BV001_streaming",        // 通用女声
+  "nansheng": "BV002_streaming",       // 通用男声
   "sichuan": "BV406_streaming",        // 四川话女声
   "chunhou": "BV002_streaming",        // 醇厚男声
-  "default": "BV001_streaming",        // 默认通用女声
+  "default": "BV002_streaming",        // 默认使用醇厚男声
 };
 
 // 调用火山引擎语音合成 API
