@@ -222,6 +222,7 @@ Deno.serve(async (req: Request) => {
       const info = await extractUserInfo(content);
       sessionData.token_count += info.tokensUsed;
 
+      // 保存提取的信息（即使不完整也保存）
       sessionData.user_info = {
         company: info.company || undefined,
         surname: info.surname || undefined,
@@ -229,12 +230,22 @@ Deno.serve(async (req: Request) => {
         raw_input: content,
       };
 
-      if (info.confidence < 0.5 || !info.company || !info.surname) {
+      // 核心逻辑：只要有姓氏，就可以继续。公司名可以为空（用默认问题）
+      const hasSurname = info.surname && info.surname.trim().length > 0;
+      
+      if (!hasSurname && info.confidence < 0.3) {
+        // 只有当完全无法识别时才要求重新输入
         reply =
           "抱歉，我没有完全理解您的信息。能否请您再说一下您的**姓名**和**公司名称**？例如：'我是小米的王俊'";
       } else {
+        // 有姓氏就继续，没有公司名就用默认问题
+        const surname = info.surname || "您";
+        const company = info.company || "默认";
+        
+        console.log(`用户信息: 姓氏=${surname}, 公司=${company}, 置信度=${info.confidence}`);
+
         // Get questions (cache -> Feishu -> default)
-        const questions = await getQuestionsForCompany(supabase, info.company);
+        const questions = await getQuestionsForCompany(supabase, company);
 
         // 确保所有问题数组都存在
         sessionData.questions = {
@@ -251,8 +262,8 @@ Deno.serve(async (req: Request) => {
 
         // Generate interview start
         const startResponse = await generateInterviewStart(
-          info.surname!,
-          info.company!,
+          surname,
+          company === "默认" ? "贵公司" : company,
           questions.part1,
           questions.part2,
           questions.part3
