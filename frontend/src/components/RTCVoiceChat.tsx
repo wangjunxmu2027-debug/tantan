@@ -32,7 +32,10 @@ export default function RTCVoiceChat({
   // 更新状态并通知父组件
   const updateStatus = useCallback((newStatus: CallStatus) => {
     setStatus(newStatus);
-    onStatusChange?.(newStatus === "connected" && isAISpeaking ? "speaking" : newStatus);
+    // 将 "error" 映射为 "idle"
+    const mappedStatus = newStatus === "error" ? "idle" : 
+                        (newStatus === "connected" && isAISpeaking ? "speaking" : newStatus);
+    onStatusChange?.(mappedStatus);
   }, [onStatusChange, isAISpeaking]);
 
   // 初始化 RTC 引擎
@@ -51,6 +54,7 @@ export default function RTCVoiceChat({
       engineRef.current = engine;
 
       // 监听远端用户加入
+      // @ts-ignore - 火山引擎 RTC SDK 类型定义不完整
       engine.on("onUserJoined", (event: any) => {
         console.log("用户加入房间:", event.userInfo?.userId);
         if (event.userInfo?.userId?.startsWith("ai_")) {
@@ -59,13 +63,16 @@ export default function RTCVoiceChat({
       });
 
       // 监听远端音频流
+      // @ts-ignore - 火山引擎 RTC SDK 类型定义不完整
       engine.on("onUserPublishStream", async (event: any) => {
         console.log("远端发布流:", event.userId);
         // 自动订阅远端音频
+        // @ts-ignore - 类型定义不完整
         await engine.subscribeStream(event.userId, { audio: true, video: false });
       });
 
       // 监听远端音频播放状态
+      // @ts-ignore - 火山引擎 RTC SDK 类型定义不完整
       engine.on("onRemoteAudioPropertiesReport", (event: any) => {
         // 检测 AI 是否在说话
         const aiSpeaking = event.audioPropertiesInfos?.some(
@@ -75,12 +82,14 @@ export default function RTCVoiceChat({
       });
 
       // 监听错误
+      // @ts-ignore - 火山引擎 RTC SDK 类型定义不完整
       engine.on("onError", (event: any) => {
         console.error("RTC 错误:", event);
         setError(`RTC 错误: ${event.errorCode}`);
       });
 
       // 监听连接状态
+      // @ts-ignore - 火山引擎 RTC SDK 类型定义不完整
       engine.on("onConnectionStateChanged", (event: any) => {
         console.log("连接状态变化:", event.state);
         if (event.state === "CONNECTED") {
