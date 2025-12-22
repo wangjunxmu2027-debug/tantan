@@ -159,4 +159,21 @@ body {
   font-size: 0.9em;
 }
 
+/* iOS 安全区域 */
+.safe-area-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* 移动端优化 */
+@media (max-width: 640px) {
+  body {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* 防止 iOS 上 textarea 放大 */
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 

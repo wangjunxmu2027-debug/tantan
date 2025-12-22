@@ -69,10 +69,10 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
           </p>
         </motion.div>
 
-        {/* 角色对话区域 */}
-        <div className="w-full max-w-6xl flex items-center justify-center gap-8 mb-12 px-4">
+        {/* 角色对话区域 - 移动端改为纵向布局 */}
+        <div className="w-full max-w-6xl flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 mb-8 md:mb-12 px-4">
           
-          {/* 采访者 - 从左侧入场 */}
+          {/* 采访者 - 移动端隐藏 */}
           <motion.div
             initial={{ opacity: 0, x: -200 }}
             animate={{ opacity: 1, x: 0 }}
@@ -83,7 +83,7 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
               stiffness: 100,
               damping: 15
             }}
-            className="flex flex-col items-center mr-8"
+            className="hidden md:flex flex-col items-center mr-0 md:mr-8"
           >
             {/* 气泡 */}
             <motion.div
@@ -127,22 +127,22 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, delay: 2.8 }}
-            className="w-full max-w-md flex flex-col items-center"
+            transition={{ duration: 0.6, delay: 0.5 }}
+            className="w-full max-w-sm md:max-w-md flex flex-col items-center order-2 md:order-none"
           >
             {/* 功能卡片网格 */}
-            <div className="grid grid-cols-2 gap-3 mb-6 w-full">
+            <div className="grid grid-cols-2 gap-2 md:gap-3 mb-4 md:mb-6 w-full">
               {features.map((feature, index) => (
                 <motion.div
                   key={index}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: feature.delay }}
+                  transition={{ duration: 0.4, delay: 0.8 + index * 0.1 }}
                   whileHover={{ scale: 1.03, y: -2 }}
-                  className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-all cursor-default"
+                  className="bg-white/10 backdrop-blur-md rounded-xl p-3 md:p-4 border border-white/20 hover:bg-white/15 transition-all cursor-default"
                 >
-                  <feature.icon className="w-6 h-6 text-purple-300 mb-2" />
-                  <p className="text-white/90 text-sm font-medium">{feature.text}</p>
+                  <feature.icon className="w-5 h-5 md:w-6 md:h-6 text-purple-300 mb-1 md:mb-2" />
+                  <p className="text-white/90 text-xs md:text-sm font-medium">{feature.text}</p>
                 </motion.div>
               ))}
             </div>
@@ -151,8 +151,8 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 3.3 }}
-              className="text-center text-purple-200/80 text-sm mb-6"
+              transition={{ delay: 1.2 }}
+              className="text-center text-purple-200/80 text-xs md:text-sm mb-4 md:mb-6"
             >
               ⏱️ 预计访谈时间：约15分钟（10余个问题）
             </motion.div>
@@ -161,14 +161,14 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
             <motion.button
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 3.5 }}
+              transition={{ duration: 0.5, delay: 1.4 }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={onStart}
               disabled={isLoading}
               className="w-full relative group"
             >
-              <div className="relative flex items-center justify-center gap-3 px-8 py-4 bg-white rounded-xl text-gray-900 font-semibold text-lg shadow-xl hover:shadow-2xl hover:bg-gray-50 transition-all disabled:opacity-70 disabled:cursor-not-allowed">
+              <div className="relative flex items-center justify-center gap-2 md:gap-3 px-6 py-3 md:px-8 md:py-4 bg-white rounded-xl text-gray-900 font-semibold text-base md:text-lg shadow-xl hover:shadow-2xl hover:bg-gray-50 transition-all disabled:opacity-70 disabled:cursor-not-allowed">
                 {isLoading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
@@ -186,17 +186,17 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 3.7 }}
-              className="text-center text-white/50 text-xs mt-4"
+              transition={{ delay: 1.6 }}
+              className="text-center text-white/50 text-xs mt-3 md:mt-4"
             >
               点击开始，探探将与您进行一对一访谈
             </motion.p>
           </motion.div>
 
-          {/* 探探 - 从右侧入场 */}
+          {/* 探探 - 移动端在顶部显示 */}
           <motion.div
-            initial={{ opacity: 0, x: 200 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ 
               duration: 0.8, 
               delay: 0.3,
@@ -204,18 +204,18 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
               stiffness: 100,
               damping: 15
             }}
-            className="flex flex-col items-center ml-8"
+            className="flex flex-col items-center ml-0 md:ml-8 order-1 md:order-none"
           >
             {/* 气泡 */}
             <motion.div
               initial={{ opacity: 0, scale: 0.8, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.8 }}
-              className="relative mb-4 max-w-[280px]"
+              className="relative mb-3 md:mb-4 max-w-[220px] md:max-w-[280px]"
             >
-              <div className="bg-gradient-to-br from-purple-500/90 to-indigo-600/90 backdrop-blur-sm rounded-2xl px-4 py-3 shadow-xl">
+              <div className="bg-gradient-to-br from-purple-500/90 to-indigo-600/90 backdrop-blur-sm rounded-2xl px-3 py-2 md:px-4 md:py-3 shadow-xl">
                 <motion.p 
-                  className="text-white text-sm leading-relaxed"
+                  className="text-white text-xs md:text-sm leading-relaxed"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 1.0, duration: 0.5 }}
@@ -237,7 +237,7 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
               transition={{ 
                 y: { duration: 3, repeat: Infinity, ease: "easeInOut" }
               }}
-              className="relative w-36 h-36 md:w-48 md:h-48 rounded-full overflow-hidden border-4 border-purple-400/50 shadow-2xl shadow-purple-500/30"
+              className="relative w-24 h-24 md:w-48 md:h-48 rounded-full overflow-hidden border-4 border-purple-400/50 shadow-2xl shadow-purple-500/30"
             >
               <Image
                 src="/tantan-avatar.png"

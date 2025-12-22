@@ -119,9 +119,9 @@ export default function ChatWindow({
       </div>
 
       {/* 输入区域 */}
-      <div className="border-t bg-white p-4 w-full">
-        <div className="max-w-5xl mx-auto px-8">
-          <div className="flex items-center gap-3">
+      <div className="border-t bg-white p-3 md:p-4 w-full safe-area-bottom">
+        <div className="max-w-5xl mx-auto px-2 md:px-8">
+          <div className="flex items-center gap-2 md:gap-3">
             {/* 语音输入按钮 */}
             <VoiceInput onResult={handleVoiceResult} disabled={isCompleted} />
 
@@ -138,8 +138,8 @@ export default function ChatWindow({
                 disabled={isLoading || isCompleted}
                 rows={1}
                 className={`
-                  w-full px-4 py-3 pr-12
-                  bg-gray-50 rounded-2xl
+                  w-full px-3 py-2 md:px-4 md:py-3 pr-10 md:pr-12
+                  bg-gray-50 rounded-xl md:rounded-2xl
                   border border-gray-200
                   focus:border-indigo-300 focus:bg-white
                   input-focus-ring
@@ -147,10 +147,11 @@ export default function ChatWindow({
                   transition-all duration-200
                   disabled:opacity-50 disabled:cursor-not-allowed
                   text-gray-800 placeholder-gray-400
+                  text-sm md:text-base
                 `}
                 style={{
-                  minHeight: "48px",
-                  maxHeight: "120px",
+                  minHeight: "44px",
+                  maxHeight: "100px",
                 }}
               />
 
@@ -159,8 +160,8 @@ export default function ChatWindow({
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isLoading || isCompleted}
                 className={`
-                  absolute right-3 top-1/2 -translate-y-1/2
-                  w-8 h-8 rounded-full
+                  absolute right-2 md:right-3 top-1/2 -translate-y-1/2
+                  w-7 h-7 md:w-8 md:h-8 rounded-full
                   flex items-center justify-center
                   transition-all duration-200
                   ${
@@ -171,13 +172,13 @@ export default function ChatWindow({
                   disabled:cursor-not-allowed
                 `}
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-3.5 h-3.5 md:w-4 md:h-4" />
               </button>
             </div>
           </div>
 
-          {/* 提示文字 */}
-          <p className="text-xs text-gray-400 mt-2 text-center">
+          {/* 提示文字 - 移动端隐藏 */}
+          <p className="hidden md:block text-xs text-gray-400 mt-2 text-center">
             按 Enter 发送，Shift + Enter 换行 | 支持语音输入
           </p>
         </div>
