@@ -17,6 +17,7 @@ import {
 type Stage =
   | "welcome"
   | "collect"
+  | "collect_name"  // 预设公司模式：只收集姓名
   | "retrieve"
   | "interview"
   | "thanks"
@@ -271,6 +272,52 @@ Deno.serve(async (req: Request) => {
         reply = startResponse.content;
         sessionData.token_count += startResponse.tokensUsed;
       }
+    } else if (sessionData.stage === "collect_name") {
+      // 预设公司模式：只需要收集姓名
+      // 从用户输入中提取姓名
+      const info = await extractUserInfo(content);
+      sessionData.token_count += info.tokensUsed;
+
+      const surname = info.surname || content.replace(/[您好我是叫]/g, "").trim() || "您";
+      
+      // 更新用户信息（保留已有的公司信息）
+      sessionData.user_info = {
+        ...sessionData.user_info,
+        surname,
+        full_name: info.fullName || surname,
+        raw_input: content,
+      };
+
+      const company = sessionData.user_info.company || "贵公司";
+      
+      console.log(`预设公司模式确认姓名: ${surname}, 公司: ${company}`);
+
+      // 问题应该已经在创建会话时加载好了
+      if (!sessionData.questions.part1 || sessionData.questions.part1.length === 0) {
+        // 如果没有问题，重新加载
+        const questions = await getQuestionsForCompany(supabase, company);
+        sessionData.questions = questions;
+      }
+
+      // 进入访谈阶段
+      sessionData.stage = "interview";
+      sessionData.progress = {
+        current_part: 1,
+        current_question_index: 0,
+        total_parts: 3,
+      };
+
+      // 生成访谈开始回复
+      const startResponse = await generateInterviewStart(
+        surname,
+        company,
+        sessionData.questions.part1,
+        sessionData.questions.part2,
+        sessionData.questions.part3
+      );
+      reply = startResponse.content;
+      sessionData.token_count += startResponse.tokensUsed;
+
     } else if (sessionData.stage === "interview") {
       // Check if user wants to end
       const endKeywords = [

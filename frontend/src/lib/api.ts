@@ -20,11 +20,20 @@ export interface Message {
   content: string;
 }
 
+// 创建会话请求参数
+export interface CreateSessionParams {
+  preset_company?: string;
+  preset_name?: string;
+  link_code?: string;
+}
+
 // API响应类型
 export interface CreateSessionResponse {
   session_id: string;
   welcome_message: string;
   stage: string;
+  preset_company?: string;
+  preset_name?: string;
 }
 
 export interface SendMessageResponse {
@@ -75,9 +84,10 @@ export interface InterviewSummary {
 export const interviewApi = {
   /**
    * 创建新的访谈会话
+   * @param params 可选的预设参数（公司名、访谈者姓名、链接代码）
    */
-  async createSession(): Promise<CreateSessionResponse> {
-    const response = await api.post<CreateSessionResponse>("/interview-create");
+  async createSession(params?: CreateSessionParams): Promise<CreateSessionResponse> {
+    const response = await api.post<CreateSessionResponse>("/interview-create", params || {});
     return response.data;
   },
 

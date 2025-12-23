@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, lazy, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatWindow from "@/components/ChatWindow";
 import Header from "@/components/Header";
@@ -10,7 +11,15 @@ import { interviewApi, type Message } from "@/lib/api";
 // 懒加载语音通话全屏组件
 const VoiceCallScreen = lazy(() => import("@/components/VoiceCallScreen"));
 
-export default function Home() {
+// 主页面内容组件
+function HomeContent() {
+  const searchParams = useSearchParams();
+  
+  // 从 URL 获取预设参数
+  const presetCompany = searchParams.get("company");
+  const presetName = searchParams.get("name");
+  const linkCode = searchParams.get("link");
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,7 +35,13 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = await interviewApi.createSession();
+      // 传入预设参数
+      const response = await interviewApi.createSession({
+        preset_company: presetCompany || undefined,
+        preset_name: presetName || undefined,
+        link_code: linkCode || undefined,
+      });
+      
       setSessionId(response.session_id);
       setMessages([
         {
@@ -85,7 +100,12 @@ export default function Home() {
             exit={{ opacity: 0 }}
             className="min-h-screen"
           >
-            <WelcomeScreen onStart={handleStart} isLoading={isLoading} />
+            <WelcomeScreen 
+            onStart={handleStart} 
+            isLoading={isLoading}
+            presetCompany={presetCompany || undefined}
+            presetName={presetName || undefined}
+          />
           </motion.div>
         ) : (
           <motion.div
@@ -143,3 +163,15 @@ export default function Home() {
   );
 }
 
+// 默认导出 - 使用 Suspense 包裹
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}

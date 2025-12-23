@@ -11,6 +11,8 @@ const Threads = dynamic(() => import("./Threads"), { ssr: false });
 interface WelcomeScreenProps {
   onStart: () => void;
   isLoading: boolean;
+  presetCompany?: string;
+  presetName?: string;
 }
 
 // 功能卡片数据
@@ -21,7 +23,7 @@ const features = [
   { icon: Shield, text: "数据严格保密", delay: 3.1 },
 ];
 
-export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps) {
+export default function WelcomeScreen({ onStart, isLoading, presetCompany, presetName }: WelcomeScreenProps) {
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-black">
       {/* Threads 背景 */}
@@ -35,12 +37,26 @@ export default function WelcomeScreen({ onStart, isLoading }: WelcomeScreenProps
       {/* 渐变遮罩 - 增强可读性 */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/20 z-[1]" />
 
+      {/* 预设公司提示条 */}
+      {presetCompany && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute top-0 left-0 right-0 z-30 bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 px-4 text-center"
+        >
+          <span className="text-sm md:text-base">
+            🏢 本次访谈针对: <strong>{presetCompany}</strong>
+            {presetName && <span> · 访谈者: <strong>{presetName}</strong></span>}
+          </span>
+        </motion.div>
+      )}
+
       {/* 左上角 Logo */}
       <motion.div
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
-        className="absolute top-6 left-6 z-20"
+        className={`absolute left-6 z-20 ${presetCompany ? 'top-16' : 'top-6'}`}
       >
         <Image
           src="/logo.png"
