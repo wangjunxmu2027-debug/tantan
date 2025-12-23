@@ -10,6 +10,17 @@ const ASR_TOKEN = Deno.env.get("VOLC_TTS_TOKEN") || "";
 async function recognizeSpeech(audioBase64: string, format: string = "wav"): Promise<string> {
   const url = "https://openspeech.bytedance.com/api/v1/asr";
   
+  // 火山引擎支持的格式: wav, mp3, ogg, speex, amr, m4a
+  // webm 通常使用 opus 编码，映射到 ogg
+  let audioFormat = format;
+  if (format === "webm" || format === "opus") {
+    audioFormat = "ogg";
+  } else if (format === "mp4" || format === "m4a") {
+    audioFormat = "m4a";
+  }
+  
+  // 一句话识别 cluster 名称
+  // 参考文档: https://www.volcengine.com/docs/6561/80818
   const requestBody = {
     app: {
       appid: ASR_APP_ID,
@@ -20,7 +31,7 @@ async function recognizeSpeech(audioBase64: string, format: string = "wav"): Pro
       uid: "tantan_" + Date.now()
     },
     audio: {
-      format: format === "webm" ? "ogg" : (format === "mp4" ? "m4a" : format),
+      format: audioFormat,
       rate: 16000,
       bits: 16,
       channel: 1,
@@ -34,8 +45,8 @@ async function recognizeSpeech(audioBase64: string, format: string = "wav"): Pro
       show_utterances: true,
       result_type: "full"
     },
-    // 音频数据需要 base64 编码
-    audio_data: audioBase64
+    // 音频数据
+    data: audioBase64
   };
 
   console.log("火山引擎 ASR 请求:", { 
