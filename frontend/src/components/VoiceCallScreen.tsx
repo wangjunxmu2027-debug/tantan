@@ -199,110 +199,173 @@ export default function VoiceCallScreen({
     }
   };
 
-  // 开始录音
+  // 开始录音 - 使用浏览器 Web Speech API（更可靠）
   const startRecording = useCallback(async () => {
     if (isMuted || isRecordingRef.current) return;
 
-    try {
-      // 获取麦克风权限
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000,
-        } 
-      });
-      streamRef.current = stream;
-
-      // 创建音频分析器检测音量
-      if (!micAudioContextRef.current) {
-        micAudioContextRef.current = new AudioContext();
-      }
-      const source = micAudioContextRef.current.createMediaStreamSource(stream);
-      const analyser = micAudioContextRef.current.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      micAnalyserRef.current = analyser;
-
-      // 创建 MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4",
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      isRecordingRef.current = true;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+    // 优先使用浏览器 Web Speech API
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = "zh-CN";
+        recognition.maxAlternatives = 1;
+        
+        isRecordingRef.current = true;
+        setStatus("listening");
+        setTranscript("");
+        
+        // 获取麦克风用于音量可视化
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          streamRef.current = stream;
+          
+          if (!micAudioContextRef.current) {
+            micAudioContextRef.current = new AudioContext();
+          }
+          const source = micAudioContextRef.current.createMediaStreamSource(stream);
+          const analyser = micAudioContextRef.current.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          micAnalyserRef.current = analyser;
+          
+          // 音量可视化
+          const updateLevel = () => {
+            if (!micAnalyserRef.current || !isRecordingRef.current) return;
+            const dataArray = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
+            micAnalyserRef.current.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            setAudioLevel(Math.min(average / 100, 1));
+            animationFrameRef.current = requestAnimationFrame(updateLevel);
+          };
+          updateLevel();
+        } catch (e) {
+          console.log("无法获取麦克风用于可视化");
         }
-      };
-
-      mediaRecorder.onstop = () => {
-        if (audioChunksRef.current.length > 0) {
+        
+        recognition.onresult = (event: any) => {
+          let finalTranscript = "";
+          let interimTranscript = "";
+          
+          for (let i = 0; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          
+          // 显示临时结果
+          if (interimTranscript) {
+            setTranscript(interimTranscript);
+          }
+          
+          // 有最终结果时发送
+          if (finalTranscript) {
+            console.log("语音识别结果:", finalTranscript);
+            setTranscript(finalTranscript);
+            setStatus("processing");
+            isRecordingRef.current = false;
+            
+            // 停止麦克风
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach(track => track.stop());
+            }
+            if (animationFrameRef.current) {
+              cancelAnimationFrame(animationFrameRef.current);
+            }
+            setAudioLevel(0);
+            
+            // 发送消息
+            onSendMessage(finalTranscript);
+          }
+        };
+        
+        recognition.onerror = (event: any) => {
+          console.error("语音识别错误:", event.error);
+          isRecordingRef.current = false;
+          
+          if (event.error === "no-speech") {
+            setTranscript("未检测到语音，请再试一次");
+            setTimeout(() => {
+              if (!isMuted && isOpen) startRecording();
+            }, 1500);
+          } else if (event.error !== "aborted") {
+            setTranscript("识别出错，请重试");
+            setTimeout(() => {
+              if (!isMuted && isOpen) startRecording();
+            }, 2000);
+          }
+        };
+        
+        recognition.onend = () => {
+          isRecordingRef.current = false;
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+          }
+          setAudioLevel(0);
+          
+          // 如果还在监听状态且没有被静音，继续识别
+          if (status === "listening" && !isMuted && isOpen) {
+            setTimeout(() => startRecording(), 500);
+          }
+        };
+        
+        recognition.start();
+        
+      } catch (error) {
+        console.error("语音识别启动失败:", error);
+        setTranscript("语音识别不可用");
+        setStatus("idle");
+      }
+    } else {
+      // 浏览器不支持，尝试使用录音 + 火山引擎 ASR
+      console.log("浏览器不支持 Web Speech API，使用录音方式");
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        streamRef.current = stream;
+        
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+        isRecordingRef.current = true;
+        
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+        
+        mediaRecorder.onstop = () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-          // 只处理有效录音（至少有一定大小）
           if (audioBlob.size > 1000) {
             sendToASR(audioBlob);
-          } else {
-            // 太短，重新开始录音
-            if (!isMuted) {
-              setTimeout(() => startRecording(), 500);
-            }
           }
-        }
-        isRecordingRef.current = false;
-      };
-
-      // 开始录音
-      mediaRecorder.start(100); // 每 100ms 收集一次数据
-      setStatus("listening");
-      setTranscript("");
-
-      // 监测音量并检测静音
-      let silenceStart = 0;
-      const SILENCE_THRESHOLD = 10; // 音量阈值
-      const SILENCE_DURATION = 1500; // 静音持续时间（毫秒）
-
-      const checkAudioLevel = () => {
-        if (!micAnalyserRef.current || !isRecordingRef.current) return;
-
-        const dataArray = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
-        micAnalyserRef.current.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-        // 更新可视化音量
-        setAudioLevel(Math.min(average / 100, 1));
-
-        // 检测静音
-        if (average < SILENCE_THRESHOLD) {
-          if (silenceStart === 0) {
-            silenceStart = Date.now();
-          } else if (Date.now() - silenceStart > SILENCE_DURATION) {
-            // 检测到静音，停止录音
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-              mediaRecorderRef.current.stop();
-              if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-              }
-            }
-            return;
+          isRecordingRef.current = false;
+        };
+        
+        mediaRecorder.start();
+        setStatus("listening");
+        setTranscript("");
+        
+        // 5秒后自动停止
+        setTimeout(() => {
+          if (mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            stream.getTracks().forEach(t => t.stop());
           }
-        } else {
-          silenceStart = 0;
-        }
-
-        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
-      };
-
-      checkAudioLevel();
-
-    } catch (error) {
-      console.error("无法访问麦克风:", error);
-      setTranscript("无法访问麦克风");
-      setStatus("idle");
+        }, 5000);
+        
+      } catch (error) {
+        console.error("无法访问麦克风:", error);
+        setTranscript("无法访问麦克风");
+        setStatus("idle");
+      }
     }
-  }, [isMuted, onSendMessage]);
+  }, [isMuted, isOpen, onSendMessage, status]);
 
   // 停止录音
   const stopRecording = useCallback(() => {
