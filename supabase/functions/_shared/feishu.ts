@@ -292,3 +292,56 @@ async function saveViaApi(params: {
   }
 }
 
+// 获取公司问题（带缓存）
+export async function fetchQuestionsForCompany(
+  companyName: string,
+  supabase: any
+): Promise<{ part1: string[]; part2: string[]; part3: string[] }> {
+  const defaultQuestions = {
+    part1: ["请问您负责的部门主要承担哪些职能？"],
+    part2: ["跨部门协作时，信息传递是否顺畅？"],
+    part3: ["除了上述问题外，您还有哪些想要补充的内容？"],
+  };
+
+  try {
+    // 1. 先查询 Supabase 缓存
+    const { data: cached } = await supabase
+      .from("questions_cache")
+      .select("*")
+      .eq("company_name", companyName)
+      .single();
+
+    if (cached && cached.part1?.length > 0) {
+      console.log(`从缓存加载 ${companyName} 的问题`);
+      return {
+        part1: cached.part1 || [],
+        part2: cached.part2 || [],
+        part3: cached.part3 || [],
+      };
+    }
+
+    // 2. 查询飞书
+    const feishuResult = await queryQuestionsFromFeishu(companyName);
+    if (feishuResult && feishuResult.part1?.length > 0) {
+      // 保存到缓存
+      await supabase.from("questions_cache").upsert({
+        company_name: companyName,
+        part1: feishuResult.part1,
+        part2: feishuResult.part2,
+        part3: feishuResult.part3,
+        updated_at: new Date().toISOString(),
+      });
+      return feishuResult;
+    }
+
+    // 3. 如果没有找到，尝试查询默认问题
+    if (companyName !== "默认") {
+      return await fetchQuestionsForCompany("默认", supabase);
+    }
+
+    return defaultQuestions;
+  } catch (err) {
+    console.error("获取问题失败:", err);
+    return defaultQuestions;
+  }
+}
