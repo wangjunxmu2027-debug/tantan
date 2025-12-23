@@ -14,6 +14,7 @@ interface MessageBubbleProps {
   isLatest?: boolean;
   autoSpeak?: boolean;
   voice?: string; // 声音类型
+  stopPlayback?: boolean; // 外部控制停止播放
 }
 
 export default function MessageBubble({
@@ -22,21 +23,35 @@ export default function MessageBubble({
   isLatest = false,
   autoSpeak = false,
   voice = "xinwen", // 默认新闻男声
+  stopPlayback = false,
 }: MessageBubbleProps) {
   const isAssistant = role === "assistant";
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 自动朗读最新的 AI 消息
+  // 外部要求停止播放时立即停止
   useEffect(() => {
-    if (isAssistant && isLatest && autoSpeak && content) {
+    if (stopPlayback && (isSpeaking || isLoading)) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      window.speechSynthesis?.cancel();
+      setIsSpeaking(false);
+      setIsLoading(false);
+    }
+  }, [stopPlayback]);
+
+  // 自动朗读最新的 AI 消息（仅当未要求停止时）
+  useEffect(() => {
+    if (isAssistant && isLatest && autoSpeak && content && !stopPlayback) {
       const timer = setTimeout(() => {
         speak();
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [isAssistant, isLatest, autoSpeak, content]);
+  }, [isAssistant, isLatest, autoSpeak, content, stopPlayback]);
 
   // 清理音频
   useEffect(() => {

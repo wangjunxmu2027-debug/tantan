@@ -111,6 +111,7 @@ export default function ChatWindow({
                 isLatest={index === messages.length - 1}
                 autoSpeak={autoSpeak && !isVoiceCallActive}
                 voice={selectedVoice}
+                stopPlayback={isVoiceCallActive}
               />
             </motion.div>
           ))}
