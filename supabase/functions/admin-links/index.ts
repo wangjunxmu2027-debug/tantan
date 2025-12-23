@@ -79,7 +79,8 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const { 
         company_name, 
-        interviewer_name, 
+        interviewer_name,
+        purpose, // 访谈目的 
         expires_hours, // 过期小时数
         max_uses,
         batch // 是否批量创建
@@ -90,6 +91,7 @@ Deno.serve(async (req: Request) => {
         const linksToCreate = body.companies.map((company: any) => ({
           company_name: company.name || company,
           interviewer_name: company.interviewer || null,
+          purpose: company.purpose || null,
           link_code: generateLinkCode(),
           expires_at: expires_hours 
             ? new Date(Date.now() + expires_hours * 60 * 60 * 1000).toISOString()
@@ -126,6 +128,7 @@ Deno.serve(async (req: Request) => {
         .insert({
           company_name,
           interviewer_name: interviewer_name || null,
+          purpose: purpose || null,
           link_code: linkCode,
           expires_at: expiresAt,
           max_uses: max_uses || 0,
