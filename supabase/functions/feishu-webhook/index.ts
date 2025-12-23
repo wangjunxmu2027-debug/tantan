@@ -1,6 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders, jsonResponse, errorResponse } from "../_shared/cors.ts";
+
+// ========== 内联 CORS 工具 ==========
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-admin-password",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, DELETE",
+};
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function errorResponse(message: string, status = 500): Response {
+  return jsonResponse({ error: message }, status);
+}
+// ========== 内联 CORS 工具结束 ==========
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -9,7 +28,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "
 const FEISHU_APP_ID = Deno.env.get("FEISHU_APP_ID") || "";
 const FEISHU_APP_SECRET = Deno.env.get("FEISHU_APP_SECRET") || "";
 const BITABLE_APP_TOKEN = Deno.env.get("BITABLE_APP_TOKEN") || "";
-const BITABLE_LINKS_TABLE_ID = Deno.env.get("BITABLE_LINKS_TABLE_ID") || "";
+const BITABLE_LINKS_TABLE_ID = Deno.env.get("BITABLE_LINKS_TABLE_ID") || "tblC6Qv0zVVSU9x0";
 
 // Webhook 验证令牌（可选，用于安全验证）
 const WEBHOOK_SECRET = Deno.env.get("FEISHU_WEBHOOK_SECRET") || "";
@@ -216,6 +235,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({
       success: true,
       link_code: linkCode,
+      interview_link: linkUrl,
       link_url: linkUrl,
       company_name: companyName,
       interviewer_name: interviewerName,
@@ -229,4 +249,3 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
-
