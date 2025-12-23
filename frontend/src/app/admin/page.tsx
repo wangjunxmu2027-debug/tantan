@@ -287,7 +287,7 @@ export default function AdminPage() {
     );
 
     if (companyIndex === -1) {
-      throw new Error("CSV 文件必须包含"公司名称"或"company"列");
+      throw new Error('CSV 文件必须包含"公司名称"或"company"列');
     }
 
     // 解析数据行
