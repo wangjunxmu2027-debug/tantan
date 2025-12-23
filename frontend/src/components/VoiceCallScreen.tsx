@@ -49,6 +49,10 @@ export default function VoiceCallScreen({
   // 音量检测相关
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
+  
+  // 用于追踪已播放的消息，避免重复播放
+  const playedMessagesRef = useRef<Set<string>>(new Set());
+  const lastMessageRef = useRef<string | null>(null);
 
   // 清理函数
   const cleanup = useCallback(() => {
@@ -78,9 +82,14 @@ export default function VoiceCallScreen({
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn("浏览器不支持语音识别");
+      setTranscript("浏览器不支持语音识别");
+      setTimeout(() => {
+        if (!isMuted && isOpen) startRecording();
+      }, 2000);
       return;
     }
 
+    console.log("回退到浏览器语音识别");
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = true;
@@ -96,27 +105,36 @@ export default function VoiceCallScreen({
         }
       }
       if (finalTranscript) {
+        console.log("浏览器 ASR 识别结果:", finalTranscript);
         setTranscript(finalTranscript);
-        onSendMessage(finalTranscript);
         setStatus("processing");
+        onSendMessage(finalTranscript);
       }
     };
 
     recognition.onerror = (event: any) => {
       console.error("浏览器语音识别错误:", event.error);
-      if (event.error !== "no-speech" && !isMuted) {
+      if (event.error !== "no-speech" && !isMuted && isOpen) {
         setTimeout(() => startRecording(), 1000);
+      } else if (event.error === "no-speech") {
+        setTranscript("未检测到语音");
+        setTimeout(() => {
+          if (!isMuted && isOpen) startRecording();
+        }, 1000);
       }
     };
 
     recognition.onend = () => {
-      // 识别结束
+      // 如果没有识别到结果，重新开始录音
+      if (status === "listening" && !isMuted && isOpen) {
+        setTimeout(() => startRecording(), 500);
+      }
     };
 
     setStatus("listening");
-    setTranscript("");
+    setTranscript("请说话...");
     recognition.start();
-  }, [onSendMessage, isMuted]);
+  }, [onSendMessage, isMuted, isOpen, status]);
 
   // 发送音频到火山引擎 ASR（带回退）
   const sendToASR = async (audioBlob: Blob) => {
@@ -132,6 +150,8 @@ export default function VoiceCallScreen({
           ""
         )
       );
+
+      console.log("发送 ASR 请求, 音频大小:", audioBlob.size);
 
       const response = await fetch(`${API_URL}/asr`, {
         method: "POST",
@@ -153,16 +173,24 @@ export default function VoiceCallScreen({
       }
 
       const result = await response.json();
+      console.log("ASR 结果:", result);
       const recognizedText = result.text?.trim();
 
       if (recognizedText) {
         setTranscript(recognizedText);
+        setStatus("processing");
+        // 发送消息到对话流
         onSendMessage(recognizedText);
+        // 等待 AI 回复后会触发 TTS 播放
       } else {
-        setTranscript("未检测到语音");
+        setTranscript("未检测到语音，请再说一次");
+        // 重新开始录音
         setTimeout(() => {
-          if (!isMuted) startRecording();
-        }, 1000);
+          if (!isMuted && isOpen) {
+            setStatus("listening");
+            startRecording();
+          }
+        }, 1500);
       }
     } catch (error) {
       console.error("ASR 请求失败，回退到浏览器:", error);
@@ -283,12 +311,21 @@ export default function VoiceCallScreen({
     setAudioLevel(0);
   }, [cleanup]);
 
-  // 监听 AI 回复并播放语音
+  // 监听 AI 回复并播放语音（只播放新消息）
   useEffect(() => {
-    if (latestAIMessage && status === "processing" && !isLoading) {
-      playTTS(latestAIMessage);
+    if (!isOpen) return;
+    
+    // 只有当消息变化时才播放
+    if (latestAIMessage && latestAIMessage !== lastMessageRef.current && !isLoading) {
+      // 检查是否已播放过（避免进入时重复播放）
+      const messageKey = latestAIMessage.slice(0, 50); // 用前50个字符作为key
+      if (!playedMessagesRef.current.has(messageKey)) {
+        playedMessagesRef.current.add(messageKey);
+        lastMessageRef.current = latestAIMessage;
+        playTTS(latestAIMessage);
+      }
     }
-  }, [latestAIMessage, isLoading, status]);
+  }, [latestAIMessage, isLoading, isOpen]);
 
   // 播放 TTS
   const playTTS = async (text: string) => {
@@ -393,15 +430,29 @@ export default function VoiceCallScreen({
     onClose();
   };
 
-  // 打开时自动开始录音
+  // 打开时初始化
   useEffect(() => {
-    if (isOpen && !isMuted) {
-      const timer = setTimeout(() => {
-        startRecording();
-      }, 500);
-      return () => clearTimeout(timer);
-    } else if (!isOpen) {
+    if (isOpen) {
+      // 记录当前消息为已播放，避免进入时重复播放
+      if (latestAIMessage) {
+        const messageKey = latestAIMessage.slice(0, 50);
+        playedMessagesRef.current.add(messageKey);
+        lastMessageRef.current = latestAIMessage;
+      }
+      
+      // 延迟开始录音，让用户准备好
+      if (!isMuted) {
+        const timer = setTimeout(() => {
+          setStatus("listening");
+          startRecording();
+        }, 800);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // 关闭时清理
       stopRecording();
+      setStatus("idle");
+      setTranscript("");
     }
   }, [isOpen]);
 

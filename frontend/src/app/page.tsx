@@ -104,6 +104,7 @@ export default function Home() {
                 sessionId={sessionId || undefined}
                 onVoiceCallOpen={() => setShowVoiceCall(true)}
                 onVoiceChange={setSelectedVoice}
+                isVoiceCallActive={showVoiceCall}
               />
             </main>
           </motion.div>

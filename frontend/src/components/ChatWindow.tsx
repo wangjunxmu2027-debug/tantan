@@ -28,6 +28,7 @@ interface ChatWindowProps {
   sessionId?: string; // 添加 sessionId 用于 RTC
   onVoiceCallOpen?: () => void; // 打开语音通话回调
   onVoiceChange?: (voice: string) => void; // 声音变化回调
+  isVoiceCallActive?: boolean; // 语音通话是否激活（激活时禁用自动播报）
 }
 
 export default function ChatWindow({
@@ -38,6 +39,7 @@ export default function ChatWindow({
   sessionId,
   onVoiceCallOpen,
   onVoiceChange,
+  isVoiceCallActive = false,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
@@ -107,7 +109,7 @@ export default function ChatWindow({
                 role={message.role}
                 content={message.content}
                 isLatest={index === messages.length - 1}
-                autoSpeak={autoSpeak}
+                autoSpeak={autoSpeak && !isVoiceCallActive}
                 voice={selectedVoice}
               />
             </motion.div>
