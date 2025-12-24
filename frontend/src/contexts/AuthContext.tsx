@@ -18,7 +18,6 @@ const VALID_CREDENTIALS = {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
 
   // 从 localStorage 恢复登录状态
   useEffect(() => {
@@ -26,7 +25,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (saved === "true") {
       setIsLoggedIn(true);
     }
-    setIsHydrated(true);
   }, []);
 
   const login = (username: string, password: string) => {
@@ -43,11 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoggedIn(false);
     localStorage.removeItem("tantan_auth");
   };
-
-  // 避免 hydration 不匹配
-  if (!isHydrated) {
-    return <>{children}</>;
-  }
 
   return (
     <AuthContext.Provider value={{ isLoggedIn, login, logout }}>
