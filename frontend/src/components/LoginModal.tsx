@@ -60,14 +60,15 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
           />
           
-          {/* 弹窗 */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-50"
-          >
-            <div className="bg-gray-900 border border-white/20 rounded-2xl shadow-2xl overflow-hidden mx-4">
+          {/* 弹窗容器 */}
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-md pointer-events-auto"
+            >
+              <div className="bg-gray-900 border border-white/20 rounded-2xl shadow-2xl overflow-hidden">
               {/* 头部 */}
               <div className="flex items-center justify-between p-6 border-b border-white/10">
                 <h2 className="text-xl font-bold text-white">登录</h2>
@@ -149,6 +150,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
               </form>
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>
