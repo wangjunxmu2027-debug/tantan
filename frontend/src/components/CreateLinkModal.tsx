@@ -107,6 +107,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
         expires_hours: expiresHours,
         max_uses: 0,
         voice: selectedVoice,
+        sync_to_feishu: syncToFeishu, // 直接传递给后端
+        base_url: baseUrl,
       }, {
         headers: {
           "Content-Type": "application/json",
@@ -126,26 +128,11 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
       });
       
       // 如果需要同步到飞书
-      if (syncToFeishu) {
-        try {
-          await axios.post(`${API_URL}/batch-links`, {
-            items: [{
-              company_name: companyName,
-              interviewer_name: interviewerName || null,
-              purpose: purpose || null,
-            }],
-            expires_hours: expiresHours,
-            max_uses: 0,
-            write_to_feishu: true,
-            base_url: baseUrl,
-          }, {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
-        } catch (feishuError) {
-          console.error("同步飞书失败:", feishuError);
-        }
+      // 飞书同步已在后端处理
+      if (response.data.feishu_synced) {
+        console.log("已同步到飞书多维表格");
+      } else if (syncToFeishu) {
+        console.warn("飞书同步未完成，请检查后端配置");
       }
       
       setStep("success");

@@ -6,6 +6,12 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD") || "tantan2024";
 
+// 飞书配置
+const FEISHU_APP_ID = Deno.env.get("FEISHU_APP_ID") || "";
+const FEISHU_APP_SECRET = Deno.env.get("FEISHU_APP_SECRET") || "";
+const BITABLE_APP_TOKEN = Deno.env.get("BITABLE_APP_TOKEN") || "RWGebvPW0aYwmKsyFGtcSwxwnbe";
+const BITABLE_LINKS_TABLE_ID = Deno.env.get("BITABLE_LINKS_TABLE_ID") || "tblC6Qv0zVVSU9x0";
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // 生成短链接代码
@@ -16,6 +22,64 @@ function generateLinkCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
+}
+
+// 获取飞书 access token
+async function getFeishuAccessToken(): Promise<string> {
+  const response = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      app_id: FEISHU_APP_ID,
+      app_secret: FEISHU_APP_SECRET,
+    }),
+  });
+  
+  const data = await response.json();
+  if (data.code !== 0) {
+    throw new Error(`获取飞书 token 失败: ${data.msg}`);
+  }
+  return data.tenant_access_token;
+}
+
+// 创建飞书多维表格记录
+async function createFeishuRecord(
+  accessToken: string,
+  companyName: string,
+  interviewerName: string | null,
+  purpose: string | null,
+  linkUrl: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_LINKS_TABLE_ID}/records`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fields: {
+            "公司名称": companyName,
+            "访谈者": interviewerName || "",
+            "本次访谈目的": purpose || "",
+            "访谈链接": {
+              link: linkUrl,
+              text: linkUrl,
+            },
+          },
+        }),
+      }
+    );
+
+    const data = await response.json();
+    console.log("飞书创建记录响应:", data);
+    return data.code === 0;
+  } catch (error) {
+    console.error("创建飞书记录失败:", error);
+    return false;
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -30,7 +94,6 @@ Deno.serve(async (req: Request) => {
   }
 
   const url = new URL(req.url);
-  const action = url.searchParams.get("action");
 
   try {
     // GET - 获取所有链接及统计
@@ -80,11 +143,13 @@ Deno.serve(async (req: Request) => {
       const { 
         company_name, 
         interviewer_name,
-        purpose, // 访谈目的 
-        expires_hours, // 过期小时数
+        purpose,
+        expires_hours,
         max_uses,
-        batch, // 是否批量创建
-        voice // 音色
+        batch,
+        voice,
+        sync_to_feishu, // 是否同步到飞书
+        base_url, // 基础URL
       } = body;
 
       // 批量创建
@@ -140,9 +205,34 @@ Deno.serve(async (req: Request) => {
 
       if (error) throw error;
 
+      // 生成完整链接URL
+      const siteUrl = base_url || "https://tantan.vercel.app";
+      const linkUrl = `${siteUrl}/i/${linkCode}`;
+
+      // 同步到飞书
+      let feishuSynced = false;
+      if (sync_to_feishu && FEISHU_APP_ID && FEISHU_APP_SECRET) {
+        try {
+          console.log("开始同步到飞书...");
+          const accessToken = await getFeishuAccessToken();
+          feishuSynced = await createFeishuRecord(
+            accessToken,
+            company_name,
+            interviewer_name,
+            purpose,
+            linkUrl
+          );
+          console.log("飞书同步结果:", feishuSynced);
+        } catch (feishuError) {
+          console.error("飞书同步失败:", feishuError);
+        }
+      }
+
       return jsonResponse({
         success: true,
         link: data,
+        link_url: linkUrl,
+        feishu_synced: feishuSynced,
       });
     }
 
@@ -170,4 +260,3 @@ Deno.serve(async (req: Request) => {
     return errorResponse(`操作失败: ${err instanceof Error ? err.message : String(err)}`);
   }
 });
-
