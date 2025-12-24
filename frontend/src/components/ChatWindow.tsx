@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Volume2, VolumeX, Phone } from "lucide-react";
+import { Send, Loader2, Volume2, VolumeX, Phone, StopCircle } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
@@ -19,6 +19,7 @@ interface ChatWindowProps {
   onVoiceCallOpen?: () => void; // 打开语音通话回调
   isVoiceCallActive?: boolean; // 语音通话是否激活（激活时禁用自动播报）
   presetVoice?: string; // 售前预设的音色，用户不可更改
+  onInterrupt?: () => void; // 打断回调
 }
 
 export default function ChatWindow({
@@ -30,9 +31,11 @@ export default function ChatWindow({
   onVoiceCallOpen,
   isVoiceCallActive = false,
   presetVoice = "xinwen",
+  onInterrupt,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(false); // 默认关闭自动朗读
+  const [pendingMessage, setPendingMessage] = useState<string>(""); // 待发送的消息
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,11 +48,26 @@ export default function ChatWindow({
     scrollToBottom();
   }, [messages]);
 
+  // 当加载完成后，如果有待发送的消息，自动发送
+  useEffect(() => {
+    if (!isLoading && pendingMessage) {
+      onSendMessage(pendingMessage);
+      setPendingMessage("");
+    }
+  }, [isLoading, pendingMessage, onSendMessage]);
+
   // 发送消息
   const handleSend = () => {
-    if (!inputValue.trim() || isLoading) return;
-    onSendMessage(inputValue.trim());
-    setInputValue("");
+    if (!inputValue.trim()) return;
+    
+    if (isLoading) {
+      // 如果正在加载，将消息存入待发送队列
+      setPendingMessage(inputValue.trim());
+      setInputValue("");
+    } else {
+      onSendMessage(inputValue.trim());
+      setInputValue("");
+    }
   };
 
   // 处理键盘事件
@@ -73,6 +91,15 @@ export default function ChatWindow({
       window.speechSynthesis?.cancel();
     }
     setAutoSpeak(!autoSpeak);
+  };
+
+  // 打断思考
+  const handleInterrupt = () => {
+    if (onInterrupt) {
+      onInterrupt();
+    }
+    // 停止语音播放
+    window.speechSynthesis?.cancel();
   };
 
   // 判断是否完成
@@ -102,7 +129,7 @@ export default function ChatWindow({
           ))}
         </AnimatePresence>
 
-        {/* 加载状态 */}
+        {/* 加载状态 - 带打断按钮 */}
         {isLoading && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -116,11 +143,34 @@ export default function ChatWindow({
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+            <div className="bg-white rounded-2xl px-4 py-3 shadow-sm flex items-center gap-3">
               <div className="flex items-center gap-2 text-gray-500">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">探探正在思考...</span>
               </div>
+              {/* 打断按钮 */}
+              <button
+                onClick={handleInterrupt}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-full text-xs font-medium transition-colors"
+                title="打断思考"
+              >
+                <StopCircle className="w-3.5 h-3.5" />
+                <span>打断</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* 待发送消息提示 */}
+        {pendingMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-end px-4"
+          >
+            <div className="bg-purple-100 text-purple-700 rounded-xl px-4 py-2 text-sm flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>待发送: {pendingMessage.slice(0, 20)}{pendingMessage.length > 20 ? '...' : ''}</span>
             </div>
           </motion.div>
         )}
@@ -188,7 +238,7 @@ export default function ChatWindow({
               </button>
             )}
 
-            {/* 文字输入框 */}
+            {/* 文字输入框 - 思考时也可输入 */}
             <div className="flex-1 relative flex items-center">
               <textarea
                 ref={inputRef}
@@ -196,9 +246,13 @@ export default function ChatWindow({
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  isCompleted ? "访谈已结束" : "输入您的回答..."
+                  isCompleted 
+                    ? "访谈已结束" 
+                    : isLoading 
+                      ? "可继续输入，待回复后自动发送..." 
+                      : "输入您的回答..."
                 }
-                disabled={isLoading || isCompleted}
+                disabled={isCompleted}
                 rows={1}
                 className={`
                   w-full px-3 py-2 md:px-4 md:py-3 pr-10 md:pr-12
@@ -221,19 +275,22 @@ export default function ChatWindow({
               {/* 发送按钮 */}
               <button
                 onClick={handleSend}
-                disabled={!inputValue.trim() || isLoading || isCompleted}
+                disabled={!inputValue.trim() || isCompleted}
                 className={`
                   absolute right-2 md:right-3 top-1/2 -translate-y-1/2
                   w-7 h-7 md:w-8 md:h-8 rounded-full
                   flex items-center justify-center
                   transition-all duration-200
                   ${
-                    inputValue.trim() && !isLoading
-                      ? "gradient-bg text-white hover:opacity-90"
+                    inputValue.trim()
+                      ? isLoading
+                        ? "bg-purple-400 text-white hover:bg-purple-500"
+                        : "gradient-bg text-white hover:opacity-90"
                       : "bg-gray-200 text-gray-400"
                   }
                   disabled:cursor-not-allowed
                 `}
+                title={isLoading ? "点击后将在回复后发送" : "发送"}
               >
                 <Send className="w-3.5 h-3.5 md:w-4 md:h-4" />
               </button>

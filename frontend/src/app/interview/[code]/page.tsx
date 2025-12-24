@@ -7,8 +7,9 @@ import ChatWindow from "@/components/ChatWindow";
 import Header from "@/components/Header";
 import WelcomeScreen from "@/components/WelcomeScreen";
 import InterviewReport from "@/components/InterviewReport";
+import InterviewSummaryCard from "@/components/InterviewSummaryCard";
 import { interviewApi, type Message } from "@/lib/api";
-import { FileText } from "lucide-react";
+import { FileText, X } from "lucide-react";
 
 // 懒加载语音通话全屏组件
 const VoiceCallScreen = lazy(() => import("@/components/VoiceCallScreen"));
@@ -33,6 +34,7 @@ export default function InterviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [showVoiceCall, setShowVoiceCall] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showSummaryCard, setShowSummaryCard] = useState(false);
   // 音色由售前设置，用户不可更改
   const presetVoice = linkInfo?.voice || "xinwen";
 
@@ -55,6 +57,17 @@ export default function InterviewPage() {
       }
     }
   }, [linkCode]);
+
+  // 访谈完成时自动显示总结卡片
+  useEffect(() => {
+    if (stage === "completed" && !showSummaryCard && !showReport) {
+      // 延迟显示，让用户先看到完成提示
+      const timer = setTimeout(() => {
+        setShowSummaryCard(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [stage, showSummaryCard, showReport]);
 
   // 开始访谈
   const handleStart = async () => {
@@ -112,6 +125,14 @@ export default function InterviewPage() {
     }
   };
 
+  // 打断思考
+  const handleInterrupt = () => {
+    // 这里可以添加取消请求的逻辑
+    setIsLoading(false);
+    setError("已打断思考");
+    setTimeout(() => setError(null), 2000);
+  };
+
   // 访谈完成
   const isCompleted = stage === "completed";
 
@@ -164,31 +185,82 @@ export default function InterviewPage() {
                 onVoiceCallOpen={() => setShowVoiceCall(true)}
                 isVoiceCallActive={showVoiceCall}
                 presetVoice={presetVoice}
+                onInterrupt={handleInterrupt}
               />
             </main>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 访谈完成提示 - 查看报告按钮 */}
+      {/* 访谈完成 - 总结卡片弹窗 */}
       <AnimatePresence>
-        {isCompleted && !showReport && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
-          >
-            <button
-              onClick={() => setShowReport(true)}
-              className="flex items-center gap-3 px-8 py-5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl shadow-2xl hover:shadow-3xl transition-all pointer-events-auto"
+        {showSummaryCard && linkInfo && (
+          <>
+            {/* 背景遮罩 */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSummaryCard(false)}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            />
+            
+            {/* 卡片容器 */}
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none overflow-y-auto"
             >
-              <FileText className="w-6 h-6" />
-              <div className="text-left">
-                <div className="font-bold text-lg">访谈已完成</div>
-                <div className="text-sm text-white/80">点击查看AI分析报告</div>
+              <div className="pointer-events-auto relative my-8">
+                {/* 关闭按钮 */}
+                <button
+                  onClick={() => setShowSummaryCard(false)}
+                  className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center hover:bg-gray-100 z-10"
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+                
+                <InterviewSummaryCard
+                  companyName={linkInfo.company_name}
+                  interviewerName={linkInfo.interviewer_name || undefined}
+                  messages={messages}
+                  onClose={() => {
+                    setShowSummaryCard(false);
+                    setShowReport(true);
+                  }}
+                />
               </div>
-            </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* 访谈完成但已关闭卡片 - 显示查看报告按钮 */}
+      <AnimatePresence>
+        {isCompleted && !showSummaryCard && !showReport && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40"
+          >
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowSummaryCard(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-white hover:bg-gray-50 text-gray-700 rounded-xl shadow-lg transition-all border"
+              >
+                <span>📊</span>
+                <span className="font-medium">查看总结卡片</span>
+              </button>
+              <button
+                onClick={() => setShowReport(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl shadow-lg transition-all"
+              >
+                <FileText className="w-4 h-4" />
+                <span className="font-medium">详细分析报告</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
