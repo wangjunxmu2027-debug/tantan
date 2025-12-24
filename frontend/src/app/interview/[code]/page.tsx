@@ -19,6 +19,8 @@ export default function InterviewPage() {
   const [linkInfo, setLinkInfo] = useState<{
     company_name: string;
     interviewer_name: string | null;
+    voice: string;
+    purpose: string | null;
   } | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -28,7 +30,8 @@ export default function InterviewPage() {
   const [isStarted, setIsStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showVoiceCall, setShowVoiceCall] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState("xinwen");
+  // 音色由售前设置，用户不可更改
+  const presetVoice = linkInfo?.voice || "xinwen";
 
   // 加载链接信息
   useEffect(() => {
@@ -40,6 +43,8 @@ export default function InterviewPage() {
           setLinkInfo({
             company_name: parsed.company_name,
             interviewer_name: parsed.interviewer_name,
+            voice: parsed.voice || 'xinwen',
+            purpose: parsed.purpose,
           });
         }
       } catch (e) {
@@ -138,8 +143,8 @@ export default function InterviewPage() {
                 stage={stage}
                 sessionId={sessionId || undefined}
                 onVoiceCallOpen={() => setShowVoiceCall(true)}
-                onVoiceChange={setSelectedVoice}
                 isVoiceCallActive={showVoiceCall}
+                presetVoice={presetVoice}
               />
             </main>
           </motion.div>
@@ -170,7 +175,7 @@ export default function InterviewPage() {
             onSendMessage={handleSendMessage}
             latestAIMessage={messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
             isLoading={isLoading}
-            voice={selectedVoice}
+            voice={presetVoice}
           />
         </Suspense>
       )}

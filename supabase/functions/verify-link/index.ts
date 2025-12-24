@@ -72,6 +72,8 @@ Deno.serve(async (req: Request) => {
       company_name: link.company_name,
       interviewer_name: link.interviewer_name,
       link_id: link.id,
+      voice: link.voice || 'xinwen',
+      purpose: link.purpose,
     });
 
   } catch (err) {

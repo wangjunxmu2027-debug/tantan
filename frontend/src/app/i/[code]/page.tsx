@@ -43,6 +43,8 @@ export default function LinkRedirectPage() {
             company_name: data.company_name,
             interviewer_name: data.interviewer_name,
             link_id: data.link_id,
+            voice: data.voice || 'xinwen',
+            purpose: data.purpose,
           }));
 
           // 延迟跳转到访谈页面

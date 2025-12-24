@@ -24,11 +24,14 @@ interface Company {
   name: string;
 }
 
-// 音色选项
+// 音色选项 - 与 ChatWindow 保持一致
 const VOICE_OPTIONS = [
-  { id: "xinwen", name: "新闻播报", description: "专业正式" },
-  { id: "zhilingya", name: "知铃雅", description: "温柔女声" },
-  { id: "male", name: "专业男声", description: "沉稳大气" },
+  { id: "xinwen", name: "新闻男声", description: "专业正式", icon: "📺" },
+  { id: "jilupian", name: "纪录片男声", description: "沉稳大气", icon: "🎬" },
+  { id: "chunhou", name: "醇厚男声", description: "成熟稳重", icon: "🎙️" },
+  { id: "nansheng", name: "阳光男声", description: "活力阳光", icon: "👨" },
+  { id: "nvsheng", name: "温柔女声", description: "亲切温柔", icon: "👩" },
+  { id: "qingxin", name: "清新女声", description: "清新自然", icon: "🌸" },
 ];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
@@ -385,20 +388,20 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                               <Mic className="inline w-4 h-4 mr-1" />
                               访谈音色
                             </label>
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                               {VOICE_OPTIONS.map((voice) => (
                                 <button
                                   key={voice.id}
                                   type="button"
                                   onClick={() => setSelectedVoice(voice.id)}
-                                  className={`py-2 px-3 rounded-lg text-sm font-medium transition-all flex flex-col items-center gap-1 ${
+                                  className={`py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
                                     selectedVoice === voice.id
                                       ? "bg-purple-600 text-white"
                                       : "bg-white/10 text-white/70 hover:bg-white/20"
                                   }`}
                                 >
+                                  <span>{voice.icon}</span>
                                   <span>{voice.name}</span>
-                                  <span className="text-xs opacity-70">{voice.description}</span>
                                 </button>
                               ))}
                             </div>

@@ -83,7 +83,8 @@ Deno.serve(async (req: Request) => {
         purpose, // 访谈目的 
         expires_hours, // 过期小时数
         max_uses,
-        batch // 是否批量创建
+        batch, // 是否批量创建
+        voice // 音色
       } = body;
 
       // 批量创建
@@ -132,6 +133,7 @@ Deno.serve(async (req: Request) => {
           link_code: linkCode,
           expires_at: expiresAt,
           max_uses: max_uses || 0,
+          voice: voice || 'xinwen',
         })
         .select()
         .single();

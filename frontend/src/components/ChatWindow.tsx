@@ -2,23 +2,13 @@
 
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Volume2, VolumeX, Phone, ChevronDown } from "lucide-react";
+import { Send, Loader2, Volume2, VolumeX, Phone } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
 
 // 懒加载 RTC 组件（暂时保留）
 const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
-
-// 可选的声音列表
-const VOICE_OPTIONS = [
-  { value: "xinwen", label: "新闻男声", icon: "📺" },
-  { value: "jilupian", label: "纪录片男声", icon: "🎬" },
-  { value: "chunhou", label: "醇厚男声", icon: "🎙️" },
-  { value: "nansheng", label: "阳光男声", icon: "👨" },
-  { value: "nvsheng", label: "温柔女声", icon: "👩" },
-  { value: "qingxin", label: "清新女声", icon: "🌸" },
-];
 
 interface ChatWindowProps {
   messages: Message[];
@@ -27,8 +17,8 @@ interface ChatWindowProps {
   stage: string;
   sessionId?: string; // 添加 sessionId 用于 RTC
   onVoiceCallOpen?: () => void; // 打开语音通话回调
-  onVoiceChange?: (voice: string) => void; // 声音变化回调
   isVoiceCallActive?: boolean; // 语音通话是否激活（激活时禁用自动播报）
+  presetVoice?: string; // 售前预设的音色，用户不可更改
 }
 
 export default function ChatWindow({
@@ -38,16 +28,13 @@ export default function ChatWindow({
   stage,
   sessionId,
   onVoiceCallOpen,
-  onVoiceChange,
   isVoiceCallActive = false,
+  presetVoice = "xinwen",
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
-  const [autoSpeak, setAutoSpeak] = useState(true); // 自动朗读开关
-  const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 默认新闻男声
-  const [showVoiceMenu, setShowVoiceMenu] = useState(false); // 是否显示声音选择菜单
+  const [autoSpeak, setAutoSpeak] = useState(false); // 默认关闭自动朗读
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const voiceMenuRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -57,17 +44,6 @@ export default function ChatWindow({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // 点击外部关闭声音菜单
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (voiceMenuRef.current && !voiceMenuRef.current.contains(event.target as Node)) {
-        setShowVoiceMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // 发送消息
   const handleSend = () => {
@@ -90,6 +66,15 @@ export default function ChatWindow({
     inputRef.current?.focus();
   };
 
+  // 切换自动朗读
+  const toggleAutoSpeak = () => {
+    if (autoSpeak) {
+      // 关闭时停止当前播放
+      window.speechSynthesis?.cancel();
+    }
+    setAutoSpeak(!autoSpeak);
+  };
+
   // 判断是否完成
   const isCompleted = stage === "completed";
 
@@ -110,7 +95,7 @@ export default function ChatWindow({
                 content={message.content}
                 isLatest={index === messages.length - 1}
                 autoSpeak={autoSpeak && !isVoiceCallActive}
-                voice={selectedVoice}
+                voice={presetVoice}
                 stopPlayback={isVoiceCallActive}
               />
             </motion.div>
@@ -164,96 +149,28 @@ export default function ChatWindow({
             {/* 语音输入按钮 */}
             <VoiceInput onResult={handleVoiceResult} disabled={isCompleted} />
 
-            {/* 声音选择 + 自动朗读开关 */}
-            <div className="relative" ref={voiceMenuRef}>
-              <button
-                onClick={() => setShowVoiceMenu(!showVoiceMenu)}
-                className={`
-                  h-10 md:h-12 px-3 rounded-full flex items-center gap-1.5
-                  transition-all duration-300 flex-shrink-0
-                  ${autoSpeak 
-                    ? 'bg-purple-100 text-purple-600 hover:bg-purple-200' 
-                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                  }
-                `}
-                title="选择语音音色"
-              >
-                <span className="text-sm hidden md:inline">
-                  {VOICE_OPTIONS.find(v => v.value === selectedVoice)?.icon}
-                </span>
-                {autoSpeak ? (
-                  <Volume2 className="w-4 h-4 md:w-5 md:h-5" />
-                ) : (
-                  <VolumeX className="w-4 h-4 md:w-5 md:h-5" />
-                )}
-                <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
-              </button>
-
-              {/* 声音选择下拉菜单 */}
-              <AnimatePresence>
-                {showVoiceMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                    className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 min-w-[160px]"
-                  >
-                    {/* 自动朗读开关 */}
-                    <div className="px-3 py-2 border-b border-gray-100">
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-sm text-gray-600">自动朗读</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (autoSpeak) {
-                              window.speechSynthesis?.cancel();
-                            }
-                            setAutoSpeak(!autoSpeak);
-                          }}
-                          className={`
-                            w-10 h-5 rounded-full transition-colors relative
-                            ${autoSpeak ? 'bg-purple-500' : 'bg-gray-300'}
-                          `}
-                        >
-                          <span 
-                            className={`
-                              absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform
-                              ${autoSpeak ? 'translate-x-5' : 'translate-x-0.5'}
-                            `}
-                          />
-                        </button>
-                      </label>
-                    </div>
-
-                    {/* 声音选项 */}
-                    <div className="py-1">
-                      <div className="px-3 py-1.5 text-xs text-gray-400">选择音色</div>
-                      {VOICE_OPTIONS.map((voice) => (
-                        <button
-                          key={voice.value}
-                          onClick={() => {
-                            setSelectedVoice(voice.value);
-                            onVoiceChange?.(voice.value);
-                            setShowVoiceMenu(false);
-                          }}
-                          className={`
-                            w-full px-3 py-2 flex items-center gap-2 text-sm
-                            transition-colors hover:bg-gray-50
-                            ${selectedVoice === voice.value ? 'text-purple-600 bg-purple-50' : 'text-gray-700'}
-                          `}
-                        >
-                          <span>{voice.icon}</span>
-                          <span>{voice.label}</span>
-                          {selectedVoice === voice.value && (
-                            <span className="ml-auto text-purple-500">✓</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* 自动朗读开关 - 简化版，只控制开关，不能选音色 */}
+            <button
+              onClick={toggleAutoSpeak}
+              className={`
+                h-10 md:h-12 px-3 rounded-full flex items-center gap-1.5
+                transition-all duration-300 flex-shrink-0
+                ${autoSpeak 
+                  ? 'bg-purple-100 text-purple-600 hover:bg-purple-200' 
+                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }
+              `}
+              title={autoSpeak ? "关闭自动朗读" : "开启自动朗读"}
+            >
+              {autoSpeak ? (
+                <Volume2 className="w-4 h-4 md:w-5 md:h-5" />
+              ) : (
+                <VolumeX className="w-4 h-4 md:w-5 md:h-5" />
+              )}
+              <span className="text-xs hidden md:inline">
+                {autoSpeak ? "朗读开" : "朗读关"}
+              </span>
+            </button>
 
             {/* 语音通话按钮 - 打开全屏语音界面 */}
             {sessionId && !isCompleted && onVoiceCallOpen && (
@@ -333,4 +250,3 @@ export default function ChatWindow({
     </div>
   );
 }
-
