@@ -45,15 +45,9 @@ export default function LinkRedirectPage() {
             link_id: data.link_id,
           }));
 
-          // 延迟跳转到首页
+          // 延迟跳转到访谈页面
           setTimeout(() => {
-            const queryParams = new URLSearchParams();
-            queryParams.set("company", data.company_name);
-            if (data.interviewer_name) {
-              queryParams.set("name", data.interviewer_name);
-            }
-            queryParams.set("link", code);
-            router.push(`/?${queryParams.toString()}`);
+            router.push(`/interview/${code}`);
           }, 1500);
         } else {
           setStatus("invalid");
