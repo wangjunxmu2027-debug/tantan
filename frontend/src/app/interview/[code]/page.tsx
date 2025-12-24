@@ -174,19 +174,19 @@ export default function InterviewPage() {
       <AnimatePresence>
         {isCompleted && !showReport && (
           <motion.div
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 100 }}
-            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
             <button
               onClick={() => setShowReport(true)}
-              className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl shadow-xl hover:shadow-2xl transition-all"
+              className="flex items-center gap-3 px-8 py-5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl shadow-2xl hover:shadow-3xl transition-all pointer-events-auto"
             >
-              <FileText className="w-5 h-5" />
+              <FileText className="w-6 h-6" />
               <div className="text-left">
-                <div className="font-semibold">访谈已完成</div>
-                <div className="text-xs text-white/80">点击查看AI分析报告</div>
+                <div className="font-bold text-lg">访谈已完成</div>
+                <div className="text-sm text-white/80">点击查看AI分析报告</div>
               </div>
             </button>
           </motion.div>
