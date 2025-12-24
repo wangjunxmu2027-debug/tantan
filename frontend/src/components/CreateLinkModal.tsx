@@ -117,7 +117,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
       });
 
       const linkData = response.data.link;
-      const linkUrl = `${baseUrl}/i/${linkData.link_code}`;
+      // 优先使用后端返回的完整 URL
+      const linkUrl = response.data.link_url || `${baseUrl}/i/${linkData.link_code}`;
       
       setGeneratedLink({
         link_code: linkData.link_code,
