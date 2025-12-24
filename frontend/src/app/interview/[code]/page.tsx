@@ -6,7 +6,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import ChatWindow from "@/components/ChatWindow";
 import Header from "@/components/Header";
 import WelcomeScreen from "@/components/WelcomeScreen";
+import InterviewReport from "@/components/InterviewReport";
 import { interviewApi, type Message } from "@/lib/api";
+import { FileText } from "lucide-react";
 
 // 懒加载语音通话全屏组件
 const VoiceCallScreen = lazy(() => import("@/components/VoiceCallScreen"));
@@ -30,6 +32,7 @@ export default function InterviewPage() {
   const [isStarted, setIsStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   // 音色由售前设置，用户不可更改
   const presetVoice = linkInfo?.voice || "xinwen";
 
@@ -109,6 +112,22 @@ export default function InterviewPage() {
     }
   };
 
+  // 访谈完成
+  const isCompleted = stage === "completed";
+
+  // 显示报告页面
+  if (showReport && sessionId && linkInfo) {
+    return (
+      <InterviewReport
+        sessionId={sessionId}
+        companyName={linkInfo.company_name}
+        interviewerName={linkInfo.interviewer_name || undefined}
+        messages={messages}
+        onClose={() => setShowReport(false)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <AnimatePresence mode="wait">
@@ -151,6 +170,29 @@ export default function InterviewPage() {
         )}
       </AnimatePresence>
 
+      {/* 访谈完成提示 - 查看报告按钮 */}
+      <AnimatePresence>
+        {isCompleted && !showReport && (
+          <motion.div
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50"
+          >
+            <button
+              onClick={() => setShowReport(true)}
+              className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl shadow-xl hover:shadow-2xl transition-all"
+            >
+              <FileText className="w-5 h-5" />
+              <div className="text-left">
+                <div className="font-semibold">访谈已完成</div>
+                <div className="text-xs text-white/80">点击查看AI分析报告</div>
+              </div>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 错误提示 */}
       <AnimatePresence>
         {error && (
@@ -182,4 +224,3 @@ export default function InterviewPage() {
     </div>
   );
 }
-

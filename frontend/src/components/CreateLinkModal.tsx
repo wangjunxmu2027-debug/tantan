@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Building2, User, Target, Clock, Link2, Copy, Check, QrCode, ChevronDown, ChevronUp, Mic, Plus } from "lucide-react";
 import axios from "axios";
+import QRCodeModal from "./QRCodeModal";
 
 interface CreateLinkModalProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
   
   // 公司列表
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -203,6 +205,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   };
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && (
         <>
@@ -540,10 +543,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                       )}
                     </button>
                     <button
-                      onClick={() => {
-                        // TODO: 生成二维码功能
-                        alert("二维码功能开发中");
-                      }}
+                      onClick={() => setShowQRCode(true)}
                       className="flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all"
                     >
                       <QrCode className="w-4 h-4" />
@@ -574,5 +574,17 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
         </>
       )}
     </AnimatePresence>
+
+      {/* 二维码弹窗 */}
+      {generatedLink && (
+        <QRCodeModal
+          isOpen={showQRCode}
+          onClose={() => setShowQRCode(false)}
+          url={generatedLink.link_url}
+          title="扫码开始访谈"
+          subtitle={`${generatedLink.company_name}${generatedLink.interviewer_name ? ` - ${generatedLink.interviewer_name}` : ""}`}
+        />
+      )}
+    </>
   );
 }
