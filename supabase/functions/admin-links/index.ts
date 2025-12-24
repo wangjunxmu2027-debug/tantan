@@ -51,6 +51,9 @@ async function createFeishuRecord(
   linkUrl: string
 ): Promise<boolean> {
   try {
+    // 飞书多维表格字段格式说明:
+    // - 文本字段: 直接传字符串
+    // - 链接字段: 传 { link: "url", text: "显示文字" } 或直接传字符串
     const response = await fetch(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_LINKS_TABLE_ID}/records`,
       {
@@ -64,18 +67,23 @@ async function createFeishuRecord(
             "公司名称": companyName,
             "访谈者": interviewerName || "",
             "本次访谈目的": purpose || "",
-            "访谈链接": {
-              link: linkUrl,
-              text: linkUrl,
-            },
+            // 如果是"链接"类型字段，使用对象格式
+            // 如果是"文本"类型字段，直接使用字符串
+            "访谈链接": linkUrl,
           },
         }),
       }
     );
 
     const data = await response.json();
-    console.log("飞书创建记录响应:", data);
-    return data.code === 0;
+    console.log("飞书创建记录响应:", JSON.stringify(data));
+    
+    if (data.code !== 0) {
+      console.error("飞书 API 错误:", data.code, data.msg);
+      return false;
+    }
+    
+    return true;
   } catch (error) {
     console.error("创建飞书记录失败:", error);
     return false;

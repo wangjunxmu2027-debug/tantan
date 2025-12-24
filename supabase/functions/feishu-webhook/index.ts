@@ -98,10 +98,8 @@ async function updateFeishuRecord(
         },
         body: JSON.stringify({
           fields: {
-            "访谈链接": {
-              link: linkUrl,
-              text: linkUrl,
-            },
+            // 直接使用字符串格式，飞书会自动识别为链接
+            "访谈链接": linkUrl,
           },
         }),
       }
