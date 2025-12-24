@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Building2, User, Target, Clock, Link2, Copy, Check, QrCode, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Building2, User, Target, Clock, Link2, Copy, Check, QrCode, ChevronDown, ChevronUp, Mic, Plus } from "lucide-react";
 import axios from "axios";
 
 interface CreateLinkModalProps {
@@ -19,7 +19,20 @@ interface GeneratedLink {
   purpose?: string;
 }
 
+interface Company {
+  id: string;
+  name: string;
+}
+
+// 音色选项
+const VOICE_OPTIONS = [
+  { id: "xinwen", name: "新闻播报", description: "专业正式" },
+  { id: "zhilingya", name: "知铃雅", description: "温柔女声" },
+  { id: "male", name: "专业男声", description: "沉稳大气" },
+];
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
+const ADMIN_PASSWORD = "tantan2024";
 
 export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLinkModalProps) {
   const [step, setStep] = useState<"form" | "success">("form");
@@ -28,15 +41,51 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   const [copied, setCopied] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   
+  // 公司列表
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+  const [isCustomCompany, setIsCustomCompany] = useState(false);
+  
   // 表单数据
   const [companyName, setCompanyName] = useState("");
   const [interviewerName, setInterviewerName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [expiresHours, setExpiresHours] = useState(168); // 默认7天
-  const [syncToFeishu, setSyncToFeishu] = useState(false);
+  const [syncToFeishu, setSyncToFeishu] = useState(true); // 默认选中
+  const [selectedVoice, setSelectedVoice] = useState("xinwen"); // 默认音色
   
   // 生成的链接
   const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(null);
+
+  // 加载公司列表
+  useEffect(() => {
+    if (isOpen) {
+      loadCompanies();
+    }
+  }, [isOpen]);
+
+  const loadCompanies = async () => {
+    setLoadingCompanies(true);
+    try {
+      const response = await axios.get(`${API_URL}/admin-companies`, {
+        headers: {
+          "x-admin-password": ADMIN_PASSWORD,
+        },
+      });
+      if (response.data.companies) {
+        setCompanies(response.data.companies.map((c: { id: string; name: string }) => ({
+          id: c.id,
+          name: c.name,
+        })));
+      }
+    } catch (err) {
+      console.error("加载公司列表失败:", err);
+      // 即使失败也允许手动输入
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,9 +101,11 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
         purpose: purpose || null,
         expires_hours: expiresHours,
         max_uses: 0,
+        voice: selectedVoice,
       }, {
         headers: {
           "Content-Type": "application/json",
+          "x-admin-password": ADMIN_PASSWORD,
         },
       });
 
@@ -116,10 +167,13 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
     setInterviewerName("");
     setPurpose("");
     setExpiresHours(168);
-    setSyncToFeishu(false);
+    setSyncToFeishu(true);
+    setSelectedVoice("xinwen");
     setGeneratedLink(null);
     setError("");
     setCopied(false);
+    setIsCustomCompany(false);
+    setShowCompanyDropdown(false);
     onClose();
   };
 
@@ -130,6 +184,19 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
     setPurpose("");
     setGeneratedLink(null);
     setCopied(false);
+    setIsCustomCompany(false);
+  };
+
+  const selectCompany = (name: string) => {
+    setCompanyName(name);
+    setShowCompanyDropdown(false);
+    setIsCustomCompany(false);
+  };
+
+  const switchToCustom = () => {
+    setIsCustomCompany(true);
+    setShowCompanyDropdown(false);
+    setCompanyName("");
   };
 
   return (
@@ -170,22 +237,93 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
               {step === "form" ? (
                 /* 表单步骤 */
                 <form onSubmit={handleSubmit} className="p-6 space-y-5">
-                  {/* 公司名称 */}
+                  {/* 公司名称 - 下拉选择或自定义 */}
                   <div>
                     <label className="block text-sm font-medium text-white/80 mb-2">
                       公司名称 <span className="text-red-400">*</span>
                     </label>
-                    <div className="relative">
-                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
-                      <input
-                        type="text"
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        placeholder="例如：小米科技"
-                        className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
-                        required
-                      />
-                    </div>
+                    
+                    {!isCustomCompany ? (
+                      <div className="relative">
+                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40 z-10" />
+                        <button
+                          type="button"
+                          onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                          className="w-full pl-10 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl text-left text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                        >
+                          {companyName || (
+                            <span className="text-white/40">
+                              {loadingCompanies ? "加载中..." : "选择公司"}
+                            </span>
+                          )}
+                        </button>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                        
+                        {/* 下拉菜单 */}
+                        <AnimatePresence>
+                          {showCompanyDropdown && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -10 }}
+                              className="absolute top-full left-0 right-0 mt-2 bg-gray-800 border border-white/20 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto"
+                            >
+                              {companies.length > 0 ? (
+                                companies.map((company) => (
+                                  <button
+                                    key={company.id}
+                                    type="button"
+                                    onClick={() => selectCompany(company.name)}
+                                    className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                                  >
+                                    {company.name}
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="px-4 py-3 text-white/50 text-sm">
+                                  暂无公司数据
+                                </div>
+                              )}
+                              
+                              {/* 添加其他公司选项 */}
+                              <button
+                                type="button"
+                                onClick={switchToCustom}
+                                className="w-full px-4 py-3 text-left text-purple-400 hover:bg-white/10 transition-colors border-t border-white/10 flex items-center gap-2"
+                              >
+                                <Plus className="w-4 h-4" />
+                                输入其他公司
+                              </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                          <input
+                            type="text"
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="输入公司名称"
+                            className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                            required
+                            autoFocus
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomCompany(false);
+                            setCompanyName("");
+                          }}
+                          className="text-sm text-purple-400 hover:text-purple-300"
+                        >
+                          ← 返回选择已有公司
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   {/* 访谈者姓名 */}
@@ -241,6 +379,31 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                           exit={{ opacity: 0, height: 0 }}
                           className="mt-4 space-y-4 overflow-hidden"
                         >
+                          {/* 访谈音色 */}
+                          <div>
+                            <label className="block text-sm font-medium text-white/80 mb-2">
+                              <Mic className="inline w-4 h-4 mr-1" />
+                              访谈音色
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {VOICE_OPTIONS.map((voice) => (
+                                <button
+                                  key={voice.id}
+                                  type="button"
+                                  onClick={() => setSelectedVoice(voice.id)}
+                                  className={`py-2 px-3 rounded-lg text-sm font-medium transition-all flex flex-col items-center gap-1 ${
+                                    selectedVoice === voice.id
+                                      ? "bg-purple-600 text-white"
+                                      : "bg-white/10 text-white/70 hover:bg-white/20"
+                                  }`}
+                                >
+                                  <span>{voice.name}</span>
+                                  <span className="text-xs opacity-70">{voice.description}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          
                           {/* 链接有效期 */}
                           <div>
                             <label className="block text-sm font-medium text-white/80 mb-2">
@@ -410,4 +573,3 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
     </AnimatePresence>
   );
 }
-
