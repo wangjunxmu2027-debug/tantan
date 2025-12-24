@@ -5,10 +5,32 @@ import { WELCOME_MESSAGE, getInterviewStartPrompt } from "../_shared/prompts.ts"
 import { fetchQuestionsForCompany } from "../_shared/feishu.ts";
 import { callLLM } from "../_shared/llm.ts";
 
+// 从全名提取姓氏
+function getSurname(fullName: string): string {
+  if (!fullName) return "";
+  // 中文姓名：取第一个字
+  // 常见复姓列表
+  const compoundSurnames = ["欧阳", "司马", "上官", "诸葛", "东方", "皇甫", "令狐", "公孙", "慕容", "司徒"];
+  for (const surname of compoundSurnames) {
+    if (fullName.startsWith(surname)) {
+      return surname;
+    }
+  }
+  // 普通单字姓
+  return fullName.charAt(0);
+}
+
+// 获取尊称（姓氏+总）
+function getHonorific(fullName: string): string {
+  const surname = getSurname(fullName);
+  return surname ? `${surname}总` : "您";
+}
+
 // 预设公司的欢迎消息
 function getPresetWelcomeMessage(companyName: string, interviewerName?: string): string {
-  const greeting = interviewerName 
-    ? `${interviewerName}您好！`
+  const honorific = interviewerName ? getHonorific(interviewerName) : "";
+  const greeting = honorific 
+    ? `${honorific}您好！`
     : `您好！`;
     
   return `${greeting}我是飞书企业访谈助手"探探"🎤。
@@ -17,7 +39,7 @@ function getPresetWelcomeMessage(companyName: string, interviewerName?: string):
 
 在调研过程中，我会精准记录您提出的业务痛点、功能需求与落地期望。您可以放心，所有信息均会严格保密🔒。
 
-${interviewerName ? '准备好后，我们就开始正式访谈吧！' : '在开始之前，请问您怎么称呼？（例如：王总）'}`;
+${honorific ? '准备好后，我们就开始正式访谈吧！' : '在开始之前，请问您怎么称呼？（例如：王总）'}`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -63,10 +85,15 @@ Deno.serve(async (req: Request) => {
         questions = await fetchQuestionsForCompany("默认", supabase);
       }
 
+      // 提取姓氏用于称呼
+      const surname = getSurname(preset_name || "");
+      const honorific = getHonorific(preset_name || "");
+      
       userInfo = {
         company: preset_company,
-        surname: preset_name || "",
+        surname: surname,
         fullname: preset_name || "",
+        honorific: honorific,
       };
 
       // 如果有预设姓名，直接进入访谈阶段
@@ -80,7 +107,8 @@ Deno.serve(async (req: Request) => {
           // 使用 LLM 生成自然的开场
           try {
             const prompt = getInterviewStartPrompt(
-              userInfo,
+              surname, // 传递姓氏而非完整用户信息对象
+              preset_company,
               questions.part1,
               questions.part2,
               questions.part3
@@ -89,7 +117,7 @@ Deno.serve(async (req: Request) => {
             welcomeMessage = llmResponse;
           } catch (e) {
             console.error("LLM 生成失败，使用模板:", e);
-            welcomeMessage = `${preset_name}您好！非常感谢您抽出宝贵时间参与本次关于${preset_company}的调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
+            welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次关于${preset_company}的调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
           }
         }
       } else {
