@@ -22,6 +22,7 @@ export interface Message {
 
 // 创建会话请求参数
 export interface CreateSessionParams {
+  theme?: string;
   preset_company?: string;
   preset_name?: string;
   link_code?: string;

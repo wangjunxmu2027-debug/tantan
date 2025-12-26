@@ -20,6 +20,7 @@ export default function InterviewPage() {
 
   // 从 sessionStorage 获取链接信息
   const [linkInfo, setLinkInfo] = useState<{
+    theme: string;
     company_name: string;
     interviewer_name: string | null;
     voice: string;
@@ -46,6 +47,7 @@ export default function InterviewPage() {
         const parsed = JSON.parse(storedLink);
         if (parsed.code === linkCode) {
           setLinkInfo({
+            theme: parsed.theme || '公司调研',
             company_name: parsed.company_name,
             interviewer_name: parsed.interviewer_name,
             voice: parsed.voice || 'xinwen',
@@ -76,6 +78,7 @@ export default function InterviewPage() {
 
     try {
       const response = await interviewApi.createSession({
+        theme: linkInfo?.theme || '公司调研',
         preset_company: linkInfo?.company_name,
         preset_name: linkInfo?.interviewer_name || undefined,
         link_code: linkCode,
