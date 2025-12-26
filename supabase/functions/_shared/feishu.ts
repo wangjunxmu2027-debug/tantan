@@ -112,7 +112,8 @@ function parseQuestions(text: unknown): string[] {
 }
 
 export async function queryQuestionsFromFeishu(
-  companyName: string
+  theme: string,
+  companyName?: string | null
 ): Promise<{ part1: string[]; part2: string[]; part3: string[] } | null> {
   if (!isConfigured()) {
     console.log("飞书配置不完整，无法查询");
@@ -125,12 +126,24 @@ export async function queryQuestionsFromFeishu(
   const config = getConfig();
 
   try {
-    const filterFormula = `CurrentValue.[被调研公司名称] = "${companyName}"`;
+    // 构建查询条件：优先查询 theme + company，其次查询 theme（company为空）
+    let filterFormula: string;
+    
+    if (companyName) {
+      // 查询特定主题+公司的问题
+      filterFormula = `AND(CurrentValue.[调研主题] = "${theme}", CurrentValue.[被调研公司名称] = "${companyName}")`;
+    } else {
+      // 查询特定主题的通用问题（公司名称为空）
+      filterFormula = `AND(CurrentValue.[调研主题] = "${theme}", OR(CurrentValue.[被调研公司名称] = "", NOT(CurrentValue.[被调研公司名称])))`;
+    }
+    
     const url = new URL(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${config.appToken}/tables/${config.questionsTableId}/records`
     );
     url.searchParams.set("filter", filterFormula);
     url.searchParams.set("page_size", "1");
+
+    console.log(`飞书查询条件: 主题=${theme}, 公司=${companyName || '空'}`);
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -150,10 +163,10 @@ export async function queryQuestionsFromFeishu(
             part2: parseQuestions(record.part2),
             part3: parseQuestions(record.part3),
           };
-          console.log(`从飞书查询到 ${companyName} 的问题`);
+          console.log(`从飞书查询到 ${theme}${companyName ? ' - ' + companyName : '(通用)'} 的问题`);
           return result;
         } else {
-          console.log(`飞书未找到 ${companyName} 的记录`);
+          console.log(`飞书未找到 ${theme}${companyName ? ' - ' + companyName : '(通用)'} 的记录`);
         }
       } else {
         console.error("飞书查询失败:", data.msg);
@@ -295,7 +308,7 @@ async function saveViaApi(params: {
 // 获取公司问题（带缓存）
 export async function fetchQuestionsForCompany(
   theme: string,
-  companyName: string,
+  companyName: string | null,
   supabase: any
 ): Promise<{ part1: string[]; part2: string[]; part3: string[] }> {
   const defaultQuestions = {
@@ -305,11 +318,10 @@ export async function fetchQuestionsForCompany(
   };
 
   try {
-    // 1. 先查询 Supabase 缓存（按主题和公司）
-    let cached = null;
+    console.log(`查询问题库: theme=${theme}, company=${companyName || '空'}`);
     
-    // 1.1 如果有公司名，先按 theme + company 查询
-    if (companyName && companyName !== theme && companyName !== "默认") {
+    // 1. 如果有公司名，先查询 theme + company 的缓存
+    if (companyName) {
       const { data, error } = await supabase
         .from("questions_cache")
         .select("*")
@@ -318,16 +330,32 @@ export async function fetchQuestionsForCompany(
         .maybeSingle();
       
       if (!error && data && data.part1?.length > 0) {
-        console.log(`从缓存加载 ${theme} - ${companyName} 的问题`);
+        console.log(`✓ 从缓存加载 ${theme} - ${companyName} 的问题`);
         return {
           part1: data.part1 || [],
           part2: data.part2 || [],
           part3: data.part3 || [],
         };
       }
+      
+      // 2. 缓存没有，查询飞书 theme + company
+      const feishuResultWithCompany = await queryQuestionsFromFeishu(theme, companyName);
+      if (feishuResultWithCompany && feishuResultWithCompany.part1?.length > 0) {
+        // 保存到缓存
+        await supabase.from("questions_cache").upsert({
+          theme,
+          company_name: companyName,
+          part1: feishuResultWithCompany.part1,
+          part2: feishuResultWithCompany.part2,
+          part3: feishuResultWithCompany.part3,
+          updated_at: new Date().toISOString(),
+        });
+        console.log(`✓ 从飞书加载 ${theme} - ${companyName} 的问题并缓存`);
+        return feishuResultWithCompany;
+      }
     }
     
-    // 1.2 按 theme 查询通用缓存（company_name 为 null 或空）
+    // 3. 查询 theme 通用问题的缓存（company_name 为 null 或空）
     const { data: themeCache, error: themeCacheError } = await supabase
       .from("questions_cache")
       .select("*")
@@ -336,7 +364,7 @@ export async function fetchQuestionsForCompany(
       .maybeSingle();
 
     if (!themeCacheError && themeCache && themeCache.part1?.length > 0) {
-      console.log(`从缓存加载 ${theme} 通用问题`);
+      console.log(`✓ 从缓存加载 ${theme} 通用问题`);
       return {
         part1: themeCache.part1 || [],
         part2: themeCache.part2 || [],
@@ -344,31 +372,24 @@ export async function fetchQuestionsForCompany(
       };
     }
 
-    // 2. 查询飞书（如果有公司名且不等于主题）
-    if (companyName && companyName !== theme && companyName !== "默认") {
-      const feishuResult = await queryQuestionsFromFeishu(companyName);
-      if (feishuResult && feishuResult.part1?.length > 0) {
-        // 保存到缓存
-        await supabase.from("questions_cache").upsert({
-          theme,
-          company_name: companyName,
-          part1: feishuResult.part1,
-          part2: feishuResult.part2,
-          part3: feishuResult.part3,
-          updated_at: new Date().toISOString(),
-        });
-        console.log(`从飞书加载 ${theme} - ${companyName} 的问题并缓存`);
-        return feishuResult;
-      }
+    // 4. 缓存没有，查询飞书 theme 通用问题（company为空）
+    const feishuResultThemeOnly = await queryQuestionsFromFeishu(theme, null);
+    if (feishuResultThemeOnly && feishuResultThemeOnly.part1?.length > 0) {
+      // 保存到缓存
+      await supabase.from("questions_cache").upsert({
+        theme,
+        company_name: null,
+        part1: feishuResultThemeOnly.part1,
+        part2: feishuResultThemeOnly.part2,
+        part3: feishuResultThemeOnly.part3,
+        updated_at: new Date().toISOString(),
+      });
+      console.log(`✓ 从飞书加载 ${theme} 通用问题并缓存`);
+      return feishuResultThemeOnly;
     }
 
-    // 3. 如果没有找到，尝试查询默认问题
-    if (companyName !== "默认") {
-      console.log(`未找到 ${theme} - ${companyName} 的问题，尝试加载默认问题`);
-      return await fetchQuestionsForCompany(theme, "默认", supabase);
-    }
-
-    console.log(`使用内置默认问题: ${theme}`);
+    // 5. 最后使用内置默认问题
+    console.log(`⚠ 未找到 ${theme} 的问题，使用内置默认问题`);
     return defaultQuestions;
   } catch (err) {
     console.error("获取问题失败:", err);

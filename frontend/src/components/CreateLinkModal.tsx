@@ -46,6 +46,10 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
   
+  // 主题列表
+  const [themes, setThemes] = useState<string[]>([]);
+  const [loadingThemes, setLoadingThemes] = useState(false);
+  
   // 公司列表
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -53,7 +57,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   const [isCustomCompany, setIsCustomCompany] = useState(false);
   
   // 表单数据
-  const [theme, setTheme] = useState("公司调研"); // 新增：调研主题（必填）
+  const [theme, setTheme] = useState(""); // 新增：调研主题（必填）
   const [isCustomTheme, setIsCustomTheme] = useState(false); // 是否自定义主题
   const [companyName, setCompanyName] = useState("");
   const [interviewerName, setInterviewerName] = useState("");
@@ -65,12 +69,39 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   // 生成的链接
   const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(null);
 
-  // 加载公司列表
+  // 加载主题和公司列表
   useEffect(() => {
     if (isOpen) {
+      loadThemes();
       loadCompanies();
     }
   }, [isOpen]);
+
+  const loadThemes = async () => {
+    setLoadingThemes(true);
+    try {
+      const response = await axios.get(`${API_URL}/admin-themes`, {
+        headers: {
+          "x-admin-password": ADMIN_PASSWORD,
+        },
+      });
+      if (response.data.themes && Array.isArray(response.data.themes)) {
+        setThemes(response.data.themes);
+        // 如果有主题列表且当前主题为空，设置第一个为默认值
+        if (response.data.themes.length > 0 && !theme) {
+          setTheme(response.data.themes[0]);
+        }
+      }
+    } catch (err) {
+      console.error("加载主题列表失败:", err);
+      // 使用默认主题
+      const defaultThemes = ["公司调研", "白皮书调研", "市场调研", "需求分析"];
+      setThemes(defaultThemes);
+      if (!theme) setTheme(defaultThemes[0]);
+    } finally {
+      setLoadingThemes(false);
+    }
+  };
 
   const loadCompanies = async () => {
     setLoadingCompanies(true);
@@ -159,7 +190,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
 
   const handleClose = () => {
     setStep("form");
-    setTheme("公司调研");
+    // 重置为第一个主题或空
+    setTheme(themes.length > 0 ? themes[0] : "");
     setIsCustomTheme(false);
     setCompanyName("");
     setInterviewerName("");
@@ -177,7 +209,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
 
   const handleContinue = () => {
     setStep("form");
-    setTheme("公司调研");
+    setTheme(themes.length > 0 ? themes[0] : "");
     setIsCustomTheme(false);
     setCompanyName("");
     setInterviewerName("");
@@ -246,38 +278,41 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                     
                     {!isCustomTheme ? (
                       <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { label: "公司调研", value: "公司调研" },
-                            { label: "白皮书调研", value: "白皮书调研" },
-                            { label: "市场调研", value: "市场调研" },
-                            { label: "需求分析", value: "需求分析" },
-                          ].map((option) => (
+                        {loadingThemes ? (
+                          <div className="text-white/60 text-center py-4">加载主题列表...</div>
+                        ) : themes.length > 0 ? (
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              {themes.map((themeOption) => (
+                                <button
+                                  key={themeOption}
+                                  type="button"
+                                  onClick={() => setTheme(themeOption)}
+                                  className={`py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+                                    theme === themeOption
+                                      ? "bg-purple-600 text-white"
+                                      : "bg-white/10 text-white/70 hover:bg-white/20"
+                                  }`}
+                                >
+                                  {themeOption}
+                                </button>
+                              ))}
+                            </div>
                             <button
-                              key={option.value}
                               type="button"
-                              onClick={() => setTheme(option.value)}
-                              className={`py-2 px-4 rounded-lg text-sm font-medium transition-all ${
-                                theme === option.value
-                                  ? "bg-purple-600 text-white"
-                                  : "bg-white/10 text-white/70 hover:bg-white/20"
-                              }`}
+                              onClick={() => {
+                                setIsCustomTheme(true);
+                                setTheme("");
+                              }}
+                              className="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1"
                             >
-                              {option.label}
+                              <Plus className="w-4 h-4" />
+                              自定义主题
                             </button>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCustomTheme(true);
-                            setTheme("");
-                          }}
-                          className="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1"
-                        >
-                          <Plus className="w-4 h-4" />
-                          自定义主题
-                        </button>
+                          </>
+                        ) : (
+                          <div className="text-white/60 text-sm">无法加载主题列表，请手动输入</div>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -297,7 +332,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                           type="button"
                           onClick={() => {
                             setIsCustomTheme(false);
-                            setTheme("公司调研");
+                            setTheme(themes.length > 0 ? themes[0] : "");
                           }}
                           className="text-sm text-purple-400 hover:text-purple-300"
                         >

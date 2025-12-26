@@ -26,25 +26,31 @@ function getHonorific(fullName: string): string {
   return surname ? `${surname}总` : "您";
 }
 
-// 预设公司的欢迎消息
-function getPresetWelcomeMessage(theme: string, companyName?: string, interviewerName?: string): string {
-  const honorific = interviewerName ? getHonorific(interviewerName) : "";
-  const greeting = honorific 
-    ? `${honorific}您好！`
-    : `您好！`;
+// 根据不同情况生成欢迎消息
+function getWelcomeMessage(theme: string, companyName?: string, interviewerName?: string): string {
+  // 情况1: 主题+公司+姓名都确定 → 不应该到这里，会直接开始访谈
   
-  // 根据是否有公司名称，调整访谈主题描述
-  const subject = companyName 
-    ? `关于 **${companyName}** 的${theme}` 
-    : `**${theme}**`;
-    
-  return `${greeting}我是飞书企业访谈助手"探探"🎤。
+  // 情况2: 主题+公司确定，姓名未确定 → 只询问姓名
+  if (companyName && !interviewerName) {
+    return `您好！我是飞书企业访谈助手"探探"🎤。
 
-很高兴与您进行${subject}访谈，预计10余个问题，大约15分钟⌚。
+很高兴与您进行关于 **${companyName}** 的${theme}访谈，预计10余个问题，大约15分钟⌚。
 
 在调研过程中，我会精准记录您提出的业务痛点、功能需求与落地期望。您可以放心，所有信息均会严格保密🔒。
 
-${honorific ? '准备好后，我们就开始正式访谈吧！' : '在开始之前，请问您怎么称呼？（例如：王总）'}`;
+在开始之前，请问您怎么称呼？（例如：王总）`;
+  }
+  
+  // 情况3: 只有主题确定，公司和姓名都未确定 → 询问公司和姓名
+  return `您好！我是飞书企业访谈助手"探探"🎤。
+
+很高兴与您进行 **${theme}** 访谈，预计10余个问题，大约15分钟⌚。
+
+在调研过程中，我会精准记录您提出的业务痛点、功能需求与落地期望。您可以放心，所有信息均会严格保密🔒。
+
+在开始之前，需要和您确认一些信息：**请问您所在的公司是哪家？以及您的全名是什么？**
+
+确认您的这些信息便于选取和您更加匹配的调研问题。`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -74,15 +80,13 @@ Deno.serve(async (req: Request) => {
     let userInfo: any = {};
     let firstQuestion = "";
 
-    // 如果有预设公司或主题，直接加载问题并跳过收集阶段
-    if (preset_company || theme) {
-      console.log("预设模式 - 主题:", theme, "公司:", preset_company, "访谈者:", preset_name);
+    // 如果有主题，处理不同场景
+    if (theme) {
+      console.log("预设模式 - 主题:", theme, "公司:", preset_company || '空', "访谈者:", preset_name || '空');
       
-      // 加载问题库
+      // 加载问题库（使用新的逻辑：theme + company）
       try {
-        // 优先使用公司名+主题查询，如果没有公司就只用主题
-        const companyKey = preset_company || theme || "默认";
-        questions = await fetchQuestionsForCompany(theme || "公司调研", companyKey, supabase);
+        questions = await fetchQuestionsForCompany(theme, preset_company || null, supabase);
         console.log("成功加载问题库:", {
           part1: questions.part1?.length || 0,
           part2: questions.part2?.length || 0,
@@ -90,7 +94,7 @@ Deno.serve(async (req: Request) => {
         });
       } catch (e) {
         console.error("加载问题库失败，使用默认:", e);
-        questions = await fetchQuestionsForCompany(theme || "公司调研", "默认", supabase);
+        questions = await fetchQuestionsForCompany(theme, null, supabase);
       }
 
       // 提取姓氏用于称呼
@@ -98,24 +102,24 @@ Deno.serve(async (req: Request) => {
       const honorific = getHonorific(preset_name || "");
       
       userInfo = {
-        company: preset_company,
+        company: preset_company || "",
         surname: surname,
         fullname: preset_name || "",
         honorific: honorific,
       };
 
-      // 如果有预设姓名，直接进入访谈阶段
-      if (preset_name) {
+      // 判断进入哪个阶段
+      if (preset_company && preset_name) {
+        // 情况1: 主题+公司+姓名都确定 → 直接开始访谈
         stage = "interview";
         
-        // 生成第一个问题
         if (questions.part1 && questions.part1.length > 0) {
           firstQuestion = questions.part1[0];
           
           // 使用 LLM 生成自然的开场
           try {
             const prompt = getInterviewStartPrompt(
-              surname, // 传递姓氏而非完整用户信息对象
+              surname,
               preset_company,
               questions.part1,
               questions.part2,
@@ -125,13 +129,18 @@ Deno.serve(async (req: Request) => {
             welcomeMessage = llmResponse;
           } catch (e) {
             console.error("LLM 生成失败，使用模板:", e);
-            welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次关于${preset_company}的调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
+            const subject = preset_company ? `关于${preset_company}的${theme}` : theme;
+            welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次${subject}调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
           }
         }
-      } else {
-        // 没有预设姓名，需要先确认姓名
+      } else if (preset_company && !preset_name) {
+        // 情况2: 主题+公司确定，姓名未确定 → 只询问姓名
         stage = "collect_name";
-        welcomeMessage = getPresetWelcomeMessage(theme || "公司调研", preset_company);
+        welcomeMessage = getWelcomeMessage(theme, preset_company);
+      } else {
+        // 情况3: 只有主题确定 → 询问公司和姓名
+        stage = "collect";
+        welcomeMessage = getWelcomeMessage(theme);
       }
     }
 
