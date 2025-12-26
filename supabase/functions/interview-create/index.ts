@@ -27,15 +27,20 @@ function getHonorific(fullName: string): string {
 }
 
 // 预设公司的欢迎消息
-function getPresetWelcomeMessage(companyName: string, interviewerName?: string): string {
+function getPresetWelcomeMessage(theme: string, companyName?: string, interviewerName?: string): string {
   const honorific = interviewerName ? getHonorific(interviewerName) : "";
   const greeting = honorific 
     ? `${honorific}您好！`
     : `您好！`;
+  
+  // 根据是否有公司名称，调整访谈主题描述
+  const subject = companyName 
+    ? `关于 **${companyName}** 的${theme}` 
+    : `**${theme}**`;
     
   return `${greeting}我是飞书企业访谈助手"探探"🎤。
 
-很高兴与您进行关于 **${companyName}** 的调研访谈，预计10余个问题，大约15分钟⌚。
+很高兴与您进行${subject}访谈，预计10余个问题，大约15分钟⌚。
 
 在调研过程中，我会精准记录您提出的业务痛点、功能需求与落地期望。您可以放心，所有信息均会严格保密🔒。
 
@@ -54,6 +59,7 @@ Deno.serve(async (req: Request) => {
       preset_company,      // 预设公司名称
       preset_name,         // 预设访谈者姓名
       link_code,           // 链接代码（用于统计）
+      theme,              // 调研主题
     } = body;
 
     // Initialize Supabase client
@@ -68,13 +74,15 @@ Deno.serve(async (req: Request) => {
     let userInfo: any = {};
     let firstQuestion = "";
 
-    // 如果有预设公司，直接加载问题并跳过收集阶段
-    if (preset_company) {
-      console.log("预设公司模式:", preset_company, preset_name);
+    // 如果有预设公司或主题，直接加载问题并跳过收集阶段
+    if (preset_company || theme) {
+      console.log("预设模式 - 主题:", theme, "公司:", preset_company, "访谈者:", preset_name);
       
-      // 加载该公司的问题库
+      // 加载问题库
       try {
-        questions = await fetchQuestionsForCompany(preset_company, supabase);
+        // 优先使用公司名+主题查询，如果没有公司就只用主题
+        const companyKey = preset_company || theme || "默认";
+        questions = await fetchQuestionsForCompany(theme || "公司调研", companyKey, supabase);
         console.log("成功加载问题库:", {
           part1: questions.part1?.length || 0,
           part2: questions.part2?.length || 0,
@@ -82,7 +90,7 @@ Deno.serve(async (req: Request) => {
         });
       } catch (e) {
         console.error("加载问题库失败，使用默认:", e);
-        questions = await fetchQuestionsForCompany("默认", supabase);
+        questions = await fetchQuestionsForCompany(theme || "公司调研", "默认", supabase);
       }
 
       // 提取姓氏用于称呼
@@ -123,7 +131,7 @@ Deno.serve(async (req: Request) => {
       } else {
         // 没有预设姓名，需要先确认姓名
         stage = "collect_name";
-        welcomeMessage = getPresetWelcomeMessage(preset_company);
+        welcomeMessage = getPresetWelcomeMessage(theme || "公司调研", preset_company);
       }
     }
 
@@ -132,6 +140,7 @@ Deno.serve(async (req: Request) => {
       .from("interview_sessions")
       .insert({
         stage,
+        theme: theme || "公司调研",
         user_info: userInfo,
         questions,
         progress: { current_part: 1, current_question_index: 0, total_parts: 3 },

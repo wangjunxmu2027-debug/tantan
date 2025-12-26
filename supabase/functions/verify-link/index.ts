@@ -69,6 +69,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({
       valid: true,
+      theme: link.theme || '公司调研',
       company_name: link.company_name,
       interviewer_name: link.interviewer_name,
       link_id: link.id,

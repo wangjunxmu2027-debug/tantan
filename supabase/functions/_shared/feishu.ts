@@ -294,51 +294,81 @@ async function saveViaApi(params: {
 
 // 获取公司问题（带缓存）
 export async function fetchQuestionsForCompany(
+  theme: string,
   companyName: string,
   supabase: any
 ): Promise<{ part1: string[]; part2: string[]; part3: string[] }> {
   const defaultQuestions = {
-    part1: ["请问您负责的部门主要承担哪些职能？"],
-    part2: ["跨部门协作时，信息传递是否顺畅？"],
+    part1: [`请问您对${theme}有哪些了解？`],
+    part2: [`在${theme}方面，您认为最重要的是什么？`],
     part3: ["除了上述问题外，您还有哪些想要补充的内容？"],
   };
 
   try {
-    // 1. 先查询 Supabase 缓存
-    const { data: cached } = await supabase
+    // 1. 先查询 Supabase 缓存（按主题和公司）
+    let cached = null;
+    
+    // 1.1 如果有公司名，先按 theme + company 查询
+    if (companyName && companyName !== theme && companyName !== "默认") {
+      const { data, error } = await supabase
+        .from("questions_cache")
+        .select("*")
+        .eq("theme", theme)
+        .eq("company_name", companyName)
+        .maybeSingle();
+      
+      if (!error && data && data.part1?.length > 0) {
+        console.log(`从缓存加载 ${theme} - ${companyName} 的问题`);
+        return {
+          part1: data.part1 || [],
+          part2: data.part2 || [],
+          part3: data.part3 || [],
+        };
+      }
+    }
+    
+    // 1.2 按 theme 查询通用缓存（company_name 为 null 或空）
+    const { data: themeCache, error: themeCacheError } = await supabase
       .from("questions_cache")
       .select("*")
-      .eq("company_name", companyName)
-      .single();
+      .eq("theme", theme)
+      .or("company_name.is.null,company_name.eq.")
+      .maybeSingle();
 
-    if (cached && cached.part1?.length > 0) {
-      console.log(`从缓存加载 ${companyName} 的问题`);
+    if (!themeCacheError && themeCache && themeCache.part1?.length > 0) {
+      console.log(`从缓存加载 ${theme} 通用问题`);
       return {
-        part1: cached.part1 || [],
-        part2: cached.part2 || [],
-        part3: cached.part3 || [],
+        part1: themeCache.part1 || [],
+        part2: themeCache.part2 || [],
+        part3: themeCache.part3 || [],
       };
     }
 
-    // 2. 查询飞书
-    const feishuResult = await queryQuestionsFromFeishu(companyName);
-    if (feishuResult && feishuResult.part1?.length > 0) {
-      // 保存到缓存
-      await supabase.from("questions_cache").upsert({
-        company_name: companyName,
-        part1: feishuResult.part1,
-        part2: feishuResult.part2,
-        part3: feishuResult.part3,
-        updated_at: new Date().toISOString(),
-      });
-      return feishuResult;
+    // 2. 查询飞书（如果有公司名且不等于主题）
+    if (companyName && companyName !== theme && companyName !== "默认") {
+      const feishuResult = await queryQuestionsFromFeishu(companyName);
+      if (feishuResult && feishuResult.part1?.length > 0) {
+        // 保存到缓存
+        await supabase.from("questions_cache").upsert({
+          theme,
+          company_name: companyName,
+          part1: feishuResult.part1,
+          part2: feishuResult.part2,
+          part3: feishuResult.part3,
+          updated_at: new Date().toISOString(),
+        });
+        console.log(`从飞书加载 ${theme} - ${companyName} 的问题并缓存`);
+        return feishuResult;
+      }
     }
 
     // 3. 如果没有找到，尝试查询默认问题
     if (companyName !== "默认") {
-      return await fetchQuestionsForCompany("默认", supabase);
+      console.log(`未找到 ${theme} - ${companyName} 的问题，尝试加载默认问题`);
+      return await fetchQuestionsForCompany(theme, "默认", supabase);
     }
 
+    console.log(`使用内置默认问题: ${theme}`);
     return defaultQuestions;
   } catch (err) {
     console.error("获取问题失败:", err);

@@ -13,7 +13,8 @@ export default function LinkRedirectPage() {
   const [status, setStatus] = useState<"loading" | "valid" | "invalid">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [linkInfo, setLinkInfo] = useState<{
-    company_name: string;
+    theme: string;
+    company_name: string | null;
     interviewer_name: string | null;
   } | null>(null);
 
@@ -32,6 +33,7 @@ export default function LinkRedirectPage() {
 
         if (data.valid) {
           setLinkInfo({
+            theme: data.theme || '公司调研',
             company_name: data.company_name,
             interviewer_name: data.interviewer_name,
           });
@@ -40,6 +42,7 @@ export default function LinkRedirectPage() {
           // 存储链接信息到 sessionStorage
           sessionStorage.setItem("interview_link", JSON.stringify({
             code,
+            theme: data.theme || '公司调研',
             company_name: data.company_name,
             interviewer_name: data.interviewer_name,
             link_id: data.link_id,
@@ -89,7 +92,18 @@ export default function LinkRedirectPage() {
             </div>
             <h1 className="text-xl font-bold mb-2">链接验证成功</h1>
             <p className="text-gray-500 mb-4">
-              即将开始 <span className="font-semibold text-purple-600">{linkInfo.company_name}</span> 的访谈
+              即将开始 
+              {linkInfo.company_name ? (
+                <>
+                  <span className="font-semibold text-purple-600">{linkInfo.company_name}</span>
+                  {linkInfo.theme && linkInfo.theme !== '公司调研' && (
+                    <span> - {linkInfo.theme}</span>
+                  )}
+                </>
+              ) : (
+                <span className="font-semibold text-purple-600">{linkInfo.theme}</span>
+              )} 
+              的访谈
               {linkInfo.interviewer_name && (
                 <span>（{linkInfo.interviewer_name}）</span>
               )}

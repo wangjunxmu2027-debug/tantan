@@ -123,7 +123,8 @@ async function updateFeishuRecord(
 async function createFeishuRecords(
   token: string,
   records: Array<{
-    company_name: string;
+    theme: string;
+    company_name?: string;
     interviewer_name?: string;
     purpose?: string;
     link_url: string;
@@ -137,7 +138,8 @@ async function createFeishuRecords(
   try {
     const feishuRecords = records.map((r) => ({
       fields: {
-        "公司名称": r.company_name,
+        "调研主题": r.theme,
+        "公司名称": r.company_name || "",
         "访谈者": r.interviewer_name || "",
         "本次访谈目的": r.purpose || "",
         "访谈链接": {
@@ -174,7 +176,8 @@ async function createFeishuRecords(
 }
 
 interface BatchItem {
-  company_name: string;
+  theme: string;
+  company_name?: string;
   interviewer_name?: string;
   purpose?: string;
   record_id?: string; // 飞书记录ID，用于回写
@@ -217,7 +220,8 @@ Deno.serve(async (req: Request) => {
 
     const baseUrl = base_url || "https://tantan.vercel.app";
     const results: Array<{
-      company_name: string;
+      theme: string;
+      company_name?: string;
       interviewer_name?: string;
       purpose?: string;
       link_code: string;
@@ -227,7 +231,8 @@ Deno.serve(async (req: Request) => {
 
     // 批量创建链接
     const linksToCreate = items.map((item) => ({
-      company_name: item.company_name,
+      theme: item.theme || "公司调研",
+      company_name: item.company_name || null,
       interviewer_name: item.interviewer_name || null,
       purpose: item.purpose || null,
       link_code: generateLinkCode(),
@@ -251,6 +256,7 @@ Deno.serve(async (req: Request) => {
       const link = createdLinks![i];
       const item = items[i];
       results.push({
+        theme: link.theme,
         company_name: link.company_name,
         interviewer_name: link.interviewer_name,
         purpose: link.purpose,

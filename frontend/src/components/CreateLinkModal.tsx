@@ -53,6 +53,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
   const [isCustomCompany, setIsCustomCompany] = useState(false);
   
   // 表单数据
+  const [theme, setTheme] = useState("公司调研"); // 新增：调研主题（必填）
+  const [isCustomTheme, setIsCustomTheme] = useState(false); // 是否自定义主题
   const [companyName, setCompanyName] = useState("");
   const [interviewerName, setInterviewerName] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -101,7 +103,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
       const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://tantan.airdemo.cn";
       
       const response = await axios.post(`${API_URL}/admin-links`, {
-        company_name: companyName,
+        theme: theme, // 新增：调研主题（必填）
+        company_name: companyName || null, // 改为可选
         interviewer_name: interviewerName || null,
         purpose: purpose || null,
         expires_hours: expiresHours,
@@ -156,6 +159,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
 
   const handleClose = () => {
     setStep("form");
+    setTheme("公司调研");
+    setIsCustomTheme(false);
     setCompanyName("");
     setInterviewerName("");
     setPurpose("");
@@ -172,6 +177,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
 
   const handleContinue = () => {
     setStep("form");
+    setTheme("公司调研");
+    setIsCustomTheme(false);
     setCompanyName("");
     setInterviewerName("");
     setPurpose("");
@@ -231,10 +238,79 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
               {step === "form" ? (
                 /* 表单步骤 */
                 <form onSubmit={handleSubmit} className="p-6 space-y-5">
-                  {/* 公司名称 - 下拉选择或自定义 */}
+                  {/* 调研主题 - 必填，第一位 */}
                   <div>
                     <label className="block text-sm font-medium text-white/80 mb-2">
-                      公司名称 <span className="text-red-400">*</span>
+                      调研主题 <span className="text-red-400">*</span>
+                    </label>
+                    
+                    {!isCustomTheme ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { label: "公司调研", value: "公司调研" },
+                            { label: "白皮书调研", value: "白皮书调研" },
+                            { label: "市场调研", value: "市场调研" },
+                            { label: "需求分析", value: "需求分析" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setTheme(option.value)}
+                              className={`py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+                                theme === option.value
+                                  ? "bg-purple-600 text-white"
+                                  : "bg-white/10 text-white/70 hover:bg-white/20"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTheme(true);
+                            setTheme("");
+                          }}
+                          className="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                        >
+                          <Plus className="w-4 h-4" />
+                          自定义主题
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Target className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                          <input
+                            type="text"
+                            value={theme}
+                            onChange={(e) => setTheme(e.target.value)}
+                            placeholder="输入自定义主题，如：小米公司需求调研"
+                            className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                            required
+                            autoFocus
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTheme(false);
+                            setTheme("公司调研");
+                          }}
+                          className="text-sm text-purple-400 hover:text-purple-300"
+                        >
+                          ← 返回选择预设主题
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* 公司名称 - 下拉选择或自定义，改为可选 */}
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-2">
+                      公司名称 <span className="text-white/40">(选填)</span>
                     </label>
                     
                     {!isCustomCompany ? (
@@ -247,7 +323,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                         >
                           {companyName || (
                             <span className="text-white/40">
-                              {loadingCompanies ? "加载中..." : "选择公司"}
+                              {loadingCompanies ? "加载中..." : "选择公司（可选）"}
                             </span>
                           )}
                         </button>
@@ -300,9 +376,8 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                             type="text"
                             value={companyName}
                             onChange={(e) => setCompanyName(e.target.value)}
-                            placeholder="输入公司名称"
+                            placeholder="输入公司名称（选填）"
                             className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
-                            required
                             autoFocus
                           />
                         </div>
@@ -458,7 +533,7 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
                   {/* 提交按钮 */}
                   <button
                     type="submit"
-                    disabled={isLoading || !companyName.trim()}
+                    disabled={isLoading || !theme.trim()}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {isLoading ? (

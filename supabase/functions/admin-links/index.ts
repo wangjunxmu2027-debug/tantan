@@ -45,7 +45,8 @@ async function getFeishuAccessToken(): Promise<string> {
 // 创建飞书多维表格记录
 async function createFeishuRecord(
   accessToken: string,
-  companyName: string,
+  theme: string,
+  companyName: string | null,
   interviewerName: string | null,
   purpose: string | null,
   linkUrl: string
@@ -64,7 +65,8 @@ async function createFeishuRecord(
         },
         body: JSON.stringify({
           fields: {
-            "公司名称": companyName,
+            "调研主题": theme,
+            "公司名称": companyName || "",
             "访谈者": interviewerName || "",
             "本次访谈目的": purpose || "",
             // 如果是"链接"类型字段，使用对象格式
@@ -149,6 +151,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST") {
       const body = await req.json();
       const { 
+        theme, // 新增：调研主题
         company_name, 
         interviewer_name,
         purpose,
@@ -163,6 +166,7 @@ Deno.serve(async (req: Request) => {
       // 批量创建
       if (batch && Array.isArray(body.companies)) {
         const linksToCreate = body.companies.map((company: any) => ({
+          theme: theme || '公司调研',
           company_name: company.name || company,
           interviewer_name: company.interviewer || null,
           purpose: company.purpose || null,
@@ -188,8 +192,9 @@ Deno.serve(async (req: Request) => {
       }
 
       // 单个创建
-      if (!company_name) {
-        return errorResponse("缺少公司名称", 400);
+      // 调研主题为必填，公司名称改为可选
+      if (!theme) {
+        return errorResponse("缺少调研主题", 400);
       }
 
       const linkCode = generateLinkCode();
@@ -200,7 +205,8 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase
         .from("interview_links")
         .insert({
-          company_name,
+          theme: theme,
+          company_name: company_name || null,
           interviewer_name: interviewer_name || null,
           purpose: purpose || null,
           link_code: linkCode,
@@ -219,13 +225,23 @@ Deno.serve(async (req: Request) => {
 
       // 同步到飞书
       let feishuSynced = false;
+      console.log("=== 飞书同步检查 ===");
+      console.log("sync_to_feishu:", sync_to_feishu);
+      console.log("FEISHU_APP_ID:", FEISHU_APP_ID ? "已设置" : "未设置");
+      console.log("FEISHU_APP_SECRET:", FEISHU_APP_SECRET ? "已设置" : "未设置");
+      console.log("BITABLE_APP_TOKEN:", BITABLE_APP_TOKEN);
+      console.log("BITABLE_LINKS_TABLE_ID:", BITABLE_LINKS_TABLE_ID);
+      
       if (sync_to_feishu && FEISHU_APP_ID && FEISHU_APP_SECRET) {
         try {
           console.log("开始同步到飞书...");
+          console.log("linkUrl:", linkUrl);
           const accessToken = await getFeishuAccessToken();
+          console.log("获取到 accessToken:", accessToken ? "成功" : "失败");
           feishuSynced = await createFeishuRecord(
             accessToken,
-            company_name,
+            theme,
+            company_name || null,
             interviewer_name,
             purpose,
             linkUrl
@@ -234,6 +250,8 @@ Deno.serve(async (req: Request) => {
         } catch (feishuError) {
           console.error("飞书同步失败:", feishuError);
         }
+      } else {
+        console.log("跳过飞书同步，原因: sync_to_feishu=", sync_to_feishu, "或环境变量未设置");
       }
 
       return jsonResponse({
