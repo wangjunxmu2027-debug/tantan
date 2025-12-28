@@ -20,6 +20,7 @@ interface ChatWindowProps {
   isVoiceCallActive?: boolean; // 语音通话是否激活（激活时禁用自动播报）
   presetVoice?: string; // 售前预设的音色，用户不可更改
   onInterrupt?: () => void; // 打断回调
+  interruptedMessage?: string; // 被打断的消息内容，需要退回到输入框
 }
 
 export default function ChatWindow({
@@ -32,12 +33,21 @@ export default function ChatWindow({
   isVoiceCallActive = false,
   presetVoice = "xinwen",
   onInterrupt,
+  interruptedMessage,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(false); // 默认关闭自动朗读
   const [pendingMessage, setPendingMessage] = useState<string>(""); // 待发送的消息
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 当收到被打断的消息时，将其退回到输入框
+  useEffect(() => {
+    if (interruptedMessage) {
+      setInputValue(interruptedMessage);
+      inputRef.current?.focus();
+    }
+  }, [interruptedMessage]);
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -148,14 +158,13 @@ export default function ChatWindow({
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">探探正在思考...</span>
               </div>
-              {/* 打断按钮 */}
+              {/* 打断按钮 - 低调设计 */}
               <button
                 onClick={handleInterrupt}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-full text-xs font-medium transition-colors"
-                title="打断思考"
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                title="取消当前回复，编辑消息"
               >
-                <StopCircle className="w-3.5 h-3.5" />
-                <span>打断</span>
+                <StopCircle className="w-4 h-4" />
               </button>
             </div>
           </motion.div>

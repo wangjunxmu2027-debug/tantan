@@ -36,6 +36,8 @@ export default function InterviewPage() {
   const [showVoiceCall, setShowVoiceCall] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showSummaryCard, setShowSummaryCard] = useState(false);
+  const [interruptedMessage, setInterruptedMessage] = useState<string>(""); // 被打断的消息
+  const [lastUserMessage, setLastUserMessage] = useState<string>(""); // 记录最后一条用户消息
   // 音色由售前设置，用户不可更改
   const presetVoice = linkInfo?.voice || "xinwen";
 
@@ -107,6 +109,8 @@ export default function InterviewPage() {
 
     const userMessage: Message = { role: "user", content };
     setMessages((prev) => [...prev, userMessage]);
+    setLastUserMessage(content); // 记录用户消息，用于打断时退回
+    setInterruptedMessage(""); // 清除之前的打断消息
     setIsLoading(true);
     setError(null);
 
@@ -130,9 +134,27 @@ export default function InterviewPage() {
 
   // 打断思考
   const handleInterrupt = () => {
-    // 这里可以添加取消请求的逻辑
+    // 停止加载状态
     setIsLoading(false);
-    setError("已打断思考");
+    
+    // 从消息列表中移除最后一条用户消息（尚未收到回复的那条）
+    setMessages((prev) => {
+      const lastMsg = prev[prev.length - 1];
+      // 确保最后一条是用户消息
+      if (lastMsg && lastMsg.role === "user") {
+        return prev.slice(0, -1);
+      }
+      return prev;
+    });
+    
+    // 将最后一条用户消息退回到输入框
+    if (lastUserMessage) {
+      setInterruptedMessage(lastUserMessage);
+      setLastUserMessage("");
+    }
+    
+    // 短暂提示
+    setError("已取消，消息已退回输入框");
     setTimeout(() => setError(null), 2000);
   };
 
@@ -189,6 +211,7 @@ export default function InterviewPage() {
                 isVoiceCallActive={showVoiceCall}
                 presetVoice={presetVoice}
                 onInterrupt={handleInterrupt}
+                interruptedMessage={interruptedMessage}
               />
             </main>
           </motion.div>
