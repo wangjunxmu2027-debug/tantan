@@ -155,11 +155,30 @@ export default function BatchCSVUploader() {
     e.stopPropagation();
     
     const file = e.dataTransfer.files[0];
-    if (file && (file.name.endsWith('.csv') || file.name.endsWith('.txt'))) {
-      const fakeEvent = {
-        target: { files: [file] }
-      } as React.ChangeEvent<HTMLInputElement>;
-      handleFileUpload(fakeEvent);
+    if (!file) return;
+    
+    if (file.name.endsWith('.csv') || file.name.endsWith('.txt')) {
+      // 直接处理文件，避免类型转换问题
+      setUploadError("");
+      setUploadSuccess("");
+      setCsvFileName(file.name);
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          const rows = parseCSV(text);
+          setCsvData(rows);
+          setUploadSuccess(`✅ 成功解析 ${rows.length} 条记录`);
+        } catch (err) {
+          setUploadError(err instanceof Error ? err.message : "解析文件失败");
+          setCsvData([]);
+        }
+      };
+      reader.onerror = () => {
+        setUploadError("读取文件失败");
+      };
+      reader.readAsText(file, "utf-8");
     } else {
       setUploadError("请上传 CSV 或 TXT 文件");
     }
