@@ -7,6 +7,8 @@ import {
   Download, Users, BarChart3, Clock, Link2, Building2,
   RefreshCw, X, Upload, FileText, AlertCircle
 } from "lucide-react";
+import BatchFormCreator from "@/components/BatchFormCreator";
+import BatchCSVUploader from "@/components/BatchCSVUploader";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
 
@@ -46,6 +48,7 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"companies" | "links" | "upload">("companies");
+  const [uploadMode, setUploadMode] = useState<"form" | "csv">("form"); // 批量上传模式
   
   // 公司相关状态
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -746,215 +749,46 @@ export default function AdminPage() {
 
         {/* 批量上传标签页 */}
         {activeTab === "upload" && (
-          <div className="space-y-6">
-            {/* 上传区域 */}
-            <div className="bg-white rounded-xl p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Upload className="w-5 h-5" />
-                上传 CSV 文件
-              </h2>
-              
-              <div className="mb-4 p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
-                <p className="font-medium mb-2">CSV 文件格式要求：</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>必须包含"公司名称"列（或 company_name）</li>
-                  <li>可选"访谈者"列（或 interviewer_name）</li>
-                  <li>可选"本次访谈目的"列（或 purpose）</li>
-                </ul>
-                <p className="mt-2 text-xs">示例: 公司名称,访谈者,本次访谈目的</p>
+          <div>
+            {/* 模式切换 */}
+            <div className="bg-white rounded-xl p-4 mb-6">
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => setUploadMode("form")}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
+                    uploadMode === "form"
+                      ? "bg-purple-600 text-white shadow-lg"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  <FileText className="w-5 h-5" />
+                  表单模式
+                  <span className="text-xs px-2 py-0.5 bg-white/20 rounded">推荐</span>
+                </button>
+                <button
+                  onClick={() => setUploadMode("csv")}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
+                    uploadMode === "csv"
+                      ? "bg-purple-600 text-white shadow-lg"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  <Upload className="w-5 h-5" />
+                  CSV 上传
+                </button>
               </div>
-
-              <div 
-                className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-purple-400 transition-colors cursor-pointer"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                {csvFileName ? (
-                  <p className="text-gray-700 font-medium">{csvFileName}</p>
-                ) : (
-                  <p className="text-gray-500">点击或拖拽 CSV 文件到此处</p>
-                )}
-              </div>
-
-              {uploadError && (
-                <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
-                  {uploadError}
-                </div>
-              )}
-
-              {uploadSuccess && (
-                <div className="mt-4 p-3 bg-green-50 text-green-700 rounded-lg flex items-center gap-2">
-                  <Check className="w-5 h-5" />
-                  {uploadSuccess}
-                </div>
-              )}
+              <p className="text-center text-sm text-gray-500 mt-3">
+                {uploadMode === "form" 
+                  ? "适合 1-10 条链接，所见即所得，新手友好" 
+                  : "适合 10+ 条链接，支持 Excel、CSV、TXT 格式"}
+              </p>
             </div>
 
-            {/* 预览数据 */}
-            {csvData.length > 0 && (
-              <div className="bg-white rounded-xl p-6">
-                <h2 className="text-lg font-semibold mb-4">预览数据 ({csvData.length} 条)</h2>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-2">#</th>
-                        <th className="text-left p-2">公司名称</th>
-                        <th className="text-left p-2">访谈者</th>
-                        <th className="text-left p-2">访谈目的</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {csvData.slice(0, 10).map((row, index) => (
-                        <tr key={index} className="border-b">
-                          <td className="p-2 text-gray-500">{index + 1}</td>
-                          <td className="p-2 font-medium">{row.company_name}</td>
-                          <td className="p-2">{row.interviewer_name || "-"}</td>
-                          <td className="p-2">{row.purpose || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {csvData.length > 10 && (
-                    <p className="text-center text-gray-500 mt-2">... 还有 {csvData.length - 10} 条数据</p>
-                  )}
-                </div>
+            {/* 表单模式 */}
+            {uploadMode === "form" && <BatchFormCreator />}
 
-                {/* 生成选项 */}
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        有效期（小时，0为永久）
-                      </label>
-                      <input
-                        type="number"
-                        value={createForm.expires_hours}
-                        onChange={(e) => setCreateForm({ ...createForm, expires_hours: parseInt(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg"
-                        min="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        最大使用次数（0为无限）
-                      </label>
-                      <input
-                        type="number"
-                        value={createForm.max_uses}
-                        onChange={(e) => setCreateForm({ ...createForm, max_uses: parseInt(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg"
-                        min="0"
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={writeToFeishu}
-                          onChange={(e) => setWriteToFeishu(e.target.checked)}
-                          className="w-5 h-5 rounded border-gray-300 text-purple-600"
-                        />
-                        <span className="text-sm font-medium text-gray-700">同步到飞书多维表格</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <button
-                    onClick={generateLinksFromCSV}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        生成中...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-5 h-5" />
-                        生成 {csvData.length} 个链接
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* 生成结果 */}
-            {generatedLinks.length > 0 && (
-              <div className="bg-white rounded-xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-green-700">
-                    ✅ 已生成 {generatedLinks.length} 个链接
-                  </h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={copyAllLinks}
-                      className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-                    >
-                      <Copy className="w-4 h-4" />
-                      复制全部
-                    </button>
-                    <button
-                      onClick={downloadGeneratedLinks}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                    >
-                      <Download className="w-4 h-4" />
-                      下载 CSV
-                    </button>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-2">公司名称</th>
-                        <th className="text-left p-2">访谈者</th>
-                        <th className="text-left p-2">访谈目的</th>
-                        <th className="text-left p-2">链接</th>
-                        <th className="text-left p-2">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {generatedLinks.map((link, index) => (
-                        <tr key={index} className="border-b">
-                          <td className="p-2 font-medium">{link.company_name}</td>
-                          <td className="p-2">{link.interviewer_name || "-"}</td>
-                          <td className="p-2">{link.purpose || "-"}</td>
-                          <td className="p-2 font-mono text-xs text-purple-600 max-w-xs truncate">
-                            {link.link_url}
-                          </td>
-                          <td className="p-2">
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(link.link_url);
-                                alert("已复制");
-                              }}
-                              className="p-1 text-gray-500 hover:bg-gray-100 rounded"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {/* CSV上传模式 */}
+            {uploadMode === "csv" && <BatchCSVUploader />}
           </div>
         )}
       </main>

@@ -45,7 +45,6 @@ async function getFeishuAccessToken(): Promise<string> {
 // 创建飞书多维表格记录
 async function createFeishuRecord(
   accessToken: string,
-  theme: string,
   companyName: string | null,
   interviewerName: string | null,
   purpose: string | null,
@@ -65,7 +64,6 @@ async function createFeishuRecord(
         },
         body: JSON.stringify({
           fields: {
-            "调研主题": theme,
             "公司名称": companyName || "",
             "访谈者": interviewerName || "",
             "本次访谈目的": purpose || "",
@@ -151,7 +149,6 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST") {
       const body = await req.json();
       const { 
-        theme, // 新增：调研主题
         company_name, 
         interviewer_name,
         purpose,
@@ -166,7 +163,6 @@ Deno.serve(async (req: Request) => {
       // 批量创建
       if (batch && Array.isArray(body.companies)) {
         const linksToCreate = body.companies.map((company: any) => ({
-          theme: theme || '公司调研',
           company_name: company.name || company,
           interviewer_name: company.interviewer || null,
           purpose: company.purpose || null,
@@ -204,7 +200,6 @@ Deno.serve(async (req: Request) => {
 
       const { data, error } = await supabase
         .from("interview_links")
-        .insert({
           theme: theme,
           company_name: company_name || null,
           interviewer_name: interviewer_name || null,
@@ -239,7 +234,6 @@ Deno.serve(async (req: Request) => {
           const accessToken = await getFeishuAccessToken();
           console.log("获取到 accessToken:", accessToken ? "成功" : "失败");
           feishuSynced = await createFeishuRecord(
-            accessToken,
             theme,
             company_name || null,
             interviewer_name,

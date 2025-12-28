@@ -176,10 +176,10 @@ async function createFeishuRecords(
 }
 
 interface BatchItem {
-  theme: string;
-  company_name?: string;
-  interviewer_name?: string;
-  purpose?: string;
+  theme: string; // 调研主题（必填）
+  company_name?: string | null; // 公司名称（选填）
+  interviewer_name?: string | null; // 访谈者（选填）
+  purpose?: string | null; // 访谈目的（选填）
   record_id?: string; // 飞书记录ID，用于回写
 }
 

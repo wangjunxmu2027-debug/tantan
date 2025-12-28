@@ -54,7 +54,6 @@ function getWelcomeMessage(theme: string, companyName?: string, interviewerName?
 }
 
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
@@ -71,11 +70,11 @@ Deno.serve(async (req: Request) => {
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const supabase = createClient(supabaseUrl, supabaseKey);
+      console.log("预设公司模式:", preset_company, preset_name);
 
     const now = new Date().toISOString();
     let stage = "collect";
-    let welcomeMessage = WELCOME_MESSAGE;
+        questions = await fetchQuestionsForCompany(preset_company, supabase);
     let questions = { part1: [], part2: [], part3: [] };
     let userInfo: any = {};
     let firstQuestion = "";
@@ -83,7 +82,7 @@ Deno.serve(async (req: Request) => {
     // 如果有主题，处理不同场景
     if (theme) {
       console.log("预设模式 - 主题:", theme, "公司:", preset_company || '空', "访谈者:", preset_name || '空');
-      
+        questions = await fetchQuestionsForCompany("默认", supabase);
       // 加载问题库（使用新的逻辑：theme + company）
       try {
         questions = await fetchQuestionsForCompany(theme, preset_company || null, supabase);
@@ -133,7 +132,6 @@ Deno.serve(async (req: Request) => {
             welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次${subject}调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
           }
         }
-      } else if (preset_company && !preset_name) {
         // 情况2: 主题+公司确定，姓名未确定 → 只询问姓名
         stage = "collect_name";
         welcomeMessage = getWelcomeMessage(theme, preset_company);
