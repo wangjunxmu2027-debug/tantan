@@ -98,13 +98,20 @@ export const interviewApi = {
   async sendMessage(
     sessionId: string,
     content: string,
+    signal?: AbortSignal,
     messageType: "text" | "voice" = "text"
   ): Promise<SendMessageResponse> {
-    const response = await api.post<SendMessageResponse>("/interview-message", {
-      session_id: sessionId,
-      content,
-      message_type: messageType,
-    });
+    const response = await api.post<SendMessageResponse>(
+      "/interview-message",
+      {
+        session_id: sessionId,
+        content,
+        message_type: messageType,
+      },
+      {
+        signal, // 传递 AbortSignal
+      }
+    );
     return response.data;
   },
 

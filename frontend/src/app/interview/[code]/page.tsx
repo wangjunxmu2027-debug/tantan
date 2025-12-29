@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatWindow from "@/components/ChatWindow";
@@ -38,6 +38,10 @@ export default function InterviewPage() {
   const [showSummaryCard, setShowSummaryCard] = useState(false);
   const [interruptedMessage, setInterruptedMessage] = useState<string>(""); // 被打断的消息
   const [lastUserMessage, setLastUserMessage] = useState<string>(""); // 记录最后一条用户消息
+  
+  // 用于取消请求的 AbortController
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
   // 音色由售前设置，用户不可更改
   const presetVoice = linkInfo?.voice || "xinwen";
 
@@ -107,6 +111,10 @@ export default function InterviewPage() {
   const handleSendMessage = async (content: string) => {
     if (!sessionId || isLoading) return;
 
+    // 创建新的 AbortController
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     const userMessage: Message = { role: "user", content };
     setMessages((prev) => [...prev, userMessage]);
     setLastUserMessage(content); // 记录用户消息，用于打断时退回
@@ -115,7 +123,12 @@ export default function InterviewPage() {
     setError(null);
 
     try {
-      const response = await interviewApi.sendMessage(sessionId, content);
+      const response = await interviewApi.sendMessage(sessionId, content, abortController.signal);
+
+      // 检查是否已被打断
+      if (abortController.signal.aborted) {
+        return;
+      }
 
       const assistantMessage: Message = {
         role: "assistant",
@@ -123,17 +136,33 @@ export default function InterviewPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
       setStage(response.stage);
-    } catch (err) {
+    } catch (err: any) {
+      // 如果是用户主动取消，不显示错误
+      if (err.name === 'AbortError' || err.name === 'CanceledError') {
+        console.log("请求已被用户取消");
+        return;
+      }
+      
       console.error("发送消息失败:", err);
       setError("发送消息失败，请重试");
       setMessages((prev) => prev.slice(0, -1));
     } finally {
-      setIsLoading(false);
+      // 只有在没有被打断的情况下才设置 loading 为 false
+      if (!abortController.signal.aborted) {
+        setIsLoading(false);
+      }
+      abortControllerRef.current = null;
     }
   };
 
   // 打断思考
   const handleInterrupt = () => {
+    // 取消正在进行的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
     // 停止加载状态
     setIsLoading(false);
     
