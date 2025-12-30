@@ -10,6 +10,8 @@ interface CreateLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  presetTheme?: string; // 预设主题
+  presetCompanyName?: string; // 预设公司名称（向后兼容）
 }
 
 interface GeneratedLink {
@@ -38,7 +40,7 @@ const VOICE_OPTIONS = [
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
 const ADMIN_PASSWORD = "tantan2024";
 
-export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLinkModalProps) {
+export default function CreateLinkModal({ isOpen, onClose, onSuccess, presetTheme, presetCompanyName }: CreateLinkModalProps) {
   const [step, setStep] = useState<"form" | "success">("form");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,8 +76,16 @@ export default function CreateLinkModal({ isOpen, onClose, onSuccess }: CreateLi
     if (isOpen) {
       loadThemes();
       loadCompanies();
+      
+      // 设置预设值
+      if (presetTheme) {
+        setTheme(presetTheme);
+      }
+      if (presetCompanyName) {
+        setCompanyName(presetCompanyName);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, presetTheme, presetCompanyName]);
 
   const loadThemes = async () => {
     setLoadingThemes(true);

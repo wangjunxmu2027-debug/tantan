@@ -50,7 +50,11 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"companies" | "links" | "upload">("companies");
   const [uploadMode, setUploadMode] = useState<"form" | "csv">("form"); // 批量上传模式
   
-  // 公司相关状态
+  // 主题相关状态
+  const [themes, setThemes] = useState<string[]>([]);
+  const [selectedThemes, setSelectedThemes] = useState<Set<string>>(new Set());
+  
+  // 公司相关状态（保留用于其他功能）
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
   
@@ -61,6 +65,7 @@ export default function AdminPage() {
   // 创建链接弹窗
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState({
+    theme: "",
     company_name: "",
     interviewer_name: "",
     purpose: "",
@@ -94,6 +99,7 @@ export default function AdminPage() {
       if (response.ok) {
         setIsAuthenticated(true);
         localStorage.setItem("admin_password", password);
+        fetchThemes();
         fetchCompanies();
         fetchLinks();
       } else {
@@ -102,6 +108,25 @@ export default function AdminPage() {
     } catch (error) {
       console.error("登录失败:", error);
       alert("登录失败，请检查网络连接");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取调研主题列表
+  const fetchThemes = async () => {
+    setLoading(true);
+    try {
+      const savedPassword = localStorage.getItem("admin_password") || password;
+      const response = await fetch(`${API_URL}/admin-themes`, {
+        headers: { "x-admin-password": savedPassword },
+      });
+      const data = await response.json();
+      if (data.themes && Array.isArray(data.themes)) {
+        setThemes(data.themes);
+      }
+    } catch (error) {
+      console.error("获取主题列表失败:", error);
     } finally {
       setLoading(false);
     }
@@ -118,6 +143,7 @@ export default function AdminPage() {
       }).then(res => {
         if (res.ok) {
           setIsAuthenticated(true);
+          fetchThemes();
           fetchCompanies();
           fetchLinks();
         }
@@ -185,7 +211,7 @@ export default function AdminPage() {
       
       if (response.ok) {
         setShowCreateModal(false);
-        setCreateForm({ company_name: "", interviewer_name: "", purpose: "", expires_hours: 0, max_uses: 0 });
+        setCreateForm({ theme: "", company_name: "", interviewer_name: "", purpose: "", expires_hours: 0, max_uses: 0 });
         fetchLinks();
       }
     } catch (error) {
@@ -506,7 +532,7 @@ export default function AdminPage() {
             }`}
           >
             <Users className="w-5 h-5 inline mr-2" />
-            公司列表
+            调研主题
           </button>
           <button
             onClick={() => setActiveTab("links")}
@@ -532,90 +558,49 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* 公司列表标签页 */}
+        {/* 调研主题列表标签页 */}
         {activeTab === "companies" && (
           <div>
             {/* 操作栏 */}
             <div className="bg-white rounded-xl p-4 mb-6 flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <button
-                  onClick={fetchCompanies}
+                  onClick={fetchThemes}
                   className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
                 >
                   <RefreshCw className="w-4 h-4" />
                   刷新
                 </button>
                 <span className="text-gray-500">
-                  已选择 {selectedCompanies.size} 家公司
+                  共 {themes.length} 个调研主题
                 </span>
               </div>
-              <button
-                onClick={batchCreateLinks}
-                disabled={selectedCompanies.size === 0}
-                className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-4 h-4" />
-                批量生成链接
-              </button>
             </div>
 
-            {/* 公司列表 */}
+            {/* 调研主题列表 */}
             {loading ? (
               <div className="text-center py-12 text-gray-500">加载中...</div>
-            ) : (
+            ) : themes.length > 0 ? (
               <div className="grid gap-3">
-                {/* 全选 */}
-                <div className="bg-white rounded-xl p-4 flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedCompanies.size === companies.length && companies.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedCompanies(new Set(companies.map(c => c.name)));
-                      } else {
-                        setSelectedCompanies(new Set());
-                      }
-                    }}
-                    className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="ml-3 font-medium">全选 ({companies.length} 家公司)</span>
-                </div>
-
-                {companies.map((company) => (
+                {themes.map((theme) => (
                   <motion.div
-                    key={company.name}
+                    key={theme}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="bg-white rounded-xl p-4 flex items-center justify-between hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-center gap-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedCompanies.has(company.name)}
-                        onChange={(e) => {
-                          const newSet = new Set(selectedCompanies);
-                          if (e.target.checked) {
-                            newSet.add(company.name);
-                          } else {
-                            newSet.delete(company.name);
-                          }
-                          setSelectedCompanies(newSet);
-                        }}
-                        className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      />
+                      <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <Users className="w-6 h-6 text-purple-600" />
+                      </div>
                       <div>
-                        <h3 className="font-semibold text-gray-900">{company.name}</h3>
-                        <p className="text-sm text-gray-500">
-                          共 {company.questionCount} 个问题
-                          {company.part1Count > 0 && ` · Part1: ${company.part1Count}`}
-                          {company.part2Count > 0 && ` · Part2: ${company.part2Count}`}
-                          {company.part3Count > 0 && ` · Part3: ${company.part3Count}`}
-                        </p>
+                        <h3 className="font-semibold text-gray-900">{theme}</h3>
+                        <p className="text-sm text-gray-500">点击创建该主题的访谈链接</p>
                       </div>
                     </div>
                     <button
                       onClick={() => {
-                        setCreateForm({ ...createForm, company_name: company.name });
+                        setCreateForm({ ...createForm, theme: theme, company_name: "", interviewer_name: "", purpose: "" });
                         setShowCreateModal(true);
                       }}
                       className="px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -624,6 +609,10 @@ export default function AdminPage() {
                     </button>
                   </motion.div>
                 ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                暂无调研主题，请检查飞书多维表格配置
               </div>
             )}
           </div>
@@ -819,7 +808,17 @@ export default function AdminPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">公司名称</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">调研主题</label>
+                  <input
+                    type="text"
+                    value={createForm.theme}
+                    readOnly
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司名称 <span className="text-gray-400">(选填)</span></label>
                   <input
                     type="text"
                     value={createForm.company_name}
@@ -885,7 +884,8 @@ export default function AdminPage() {
                 </button>
                 <button
                   onClick={createLink}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  disabled={!createForm.theme || loading}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   创建
                 </button>
