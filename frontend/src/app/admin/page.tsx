@@ -22,6 +22,7 @@ interface Company {
 
 interface InterviewLink {
   id: string;
+  theme: string;
   company_name: string;
   interviewer_name: string | null;
   purpose?: string | null;
@@ -658,13 +659,14 @@ export default function AdminPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="font-semibold text-gray-900">{link.company_name}</h3>
-                        {link.interviewer_name && (
-                          <span className="text-sm text-gray-500">· {link.interviewer_name}</span>
-                        )}
-                        {link.purpose && (
-                          <span className="text-sm text-blue-500">· {link.purpose}</span>
-                        )}
+                        <h3 className="font-semibold text-gray-900">
+                          {[
+                            link.theme,
+                            link.company_name,
+                            link.interviewer_name,
+                            link.purpose
+                          ].filter(Boolean).join(' - ')}
+                        </h3>
                         {link.isExpired && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full">已过期</span>
                         )}
