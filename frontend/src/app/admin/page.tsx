@@ -73,6 +73,20 @@ export default function AdminPage() {
     expires_hours: 0,
     max_uses: 0,
   });
+  
+  // 创建成功弹窗
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [createdLink, setCreatedLink] = useState<{
+    link_url: string;
+    link_code: string;
+    theme: string;
+    company_name?: string;
+    interviewer_name?: string;
+    purpose?: string;
+  } | null>(null);
+  
+  // 主题筛选
+  const [selectedThemeFilter, setSelectedThemeFilter] = useState<string>("全部");
 
   // CSV 上传相关状态
   const [csvData, setCsvData] = useState<CSVRow[]>([]);
@@ -199,6 +213,7 @@ export default function AdminPage() {
 
   // 创建单个链接
   const createLink = async () => {
+    setLoading(true);
     try {
       const savedPassword = localStorage.getItem("admin_password") || password;
       const response = await fetch(`${API_URL}/admin-links`, {
@@ -211,12 +226,32 @@ export default function AdminPage() {
       });
       
       if (response.ok) {
+        const data = await response.json();
+        const linkUrl = typeof window !== "undefined" 
+          ? `${window.location.origin}/i/${data.link.link_code}`
+          : "";
+        
+        // 显示成功弹窗
+        setCreatedLink({
+          link_url: linkUrl,
+          link_code: data.link.link_code,
+          theme: createForm.theme,
+          company_name: createForm.company_name || undefined,
+          interviewer_name: createForm.interviewer_name || undefined,
+          purpose: createForm.purpose || undefined,
+        });
         setShowCreateModal(false);
+        setShowSuccessModal(true);
         setCreateForm({ theme: "", company_name: "", interviewer_name: "", purpose: "", expires_hours: 0, max_uses: 0 });
         fetchLinks();
+      } else {
+        alert("创建链接失败，请重试");
       }
     } catch (error) {
       console.error("创建链接失败:", error);
+      alert("创建链接失败，请检查网络连接");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -269,6 +304,12 @@ export default function AdminPage() {
     } catch (error) {
       console.error("删除失败:", error);
     }
+  };
+
+  // 查看单个链接的访谈报告
+  const viewLinkReport = (linkId: string) => {
+    // TODO: 实现查看报告功能
+    alert(`查看链接报告: ${linkId}`);
   };
 
   // 导出为 CSV
@@ -633,7 +674,7 @@ export default function AdminPage() {
                   刷新
                 </button>
                 <span className="text-gray-500">
-                  共 {links.length} 个链接
+                  共 {links.filter(link => selectedThemeFilter === "全部" || link.theme === selectedThemeFilter).length} 个链接
                 </span>
               </div>
               <button
@@ -645,9 +686,40 @@ export default function AdminPage() {
               </button>
             </div>
 
+            {/* 主题筛选标签 */}
+            <div className="bg-white rounded-xl p-4 mb-6">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSelectedThemeFilter("全部")}
+                  className={`px-4 py-2 rounded-lg transition-colors ${
+                    selectedThemeFilter === "全部"
+                      ? "bg-purple-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  全部
+                </button>
+                {Array.from(new Set(links.map(link => link.theme))).map((theme) => (
+                  <button
+                    key={theme}
+                    onClick={() => setSelectedThemeFilter(theme)}
+                    className={`px-4 py-2 rounded-lg transition-colors ${
+                      selectedThemeFilter === theme
+                        ? "bg-purple-600 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {theme}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* 链接列表 */}
             <div className="space-y-3">
-              {links.map((link) => (
+              {links
+                .filter(link => selectedThemeFilter === "全部" || link.theme === selectedThemeFilter)
+                .map((link) => (
                 <motion.div
                   key={link.id}
                   initial={{ opacity: 0, y: 10 }}
@@ -698,6 +770,13 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => viewLinkReport(link.id)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                        title="查看访谈报告"
+                      >
+                        <FileText className="w-5 h-5" />
+                      </button>
                       <button
                         onClick={() => copyLink(link.link_code)}
                         className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
@@ -890,6 +969,118 @@ export default function AdminPage() {
                   className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   创建
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 创建成功弹窗 */}
+      <AnimatePresence>
+        {showSuccessModal && createdLink && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowSuccessModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 max-w-lg w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Check className="w-6 h-6 text-green-500" />
+                  <h2 className="text-xl font-bold">创建成功！</h2>
+                </div>
+                <button onClick={() => setShowSuccessModal(false)}>
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">访谈链接</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={createdLink.link_url}
+                      readOnly
+                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono"
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(createdLink.link_url);
+                        setCopiedLink(createdLink.link_code);
+                        setTimeout(() => setCopiedLink(null), 2000);
+                      }}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+                    >
+                      {copiedLink === createdLink.link_code ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          已复制
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          复制
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-purple-50 rounded-lg p-4 space-y-2">
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">调研主题：</span>{createdLink.theme}
+                  </p>
+                  {createdLink.company_name && (
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">公司名称：</span>{createdLink.company_name}
+                    </p>
+                  )}
+                  {createdLink.interviewer_name && (
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">访谈者：</span>{createdLink.interviewer_name}
+                    </p>
+                  )}
+                  {createdLink.purpose && (
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">访谈目的：</span>{createdLink.purpose}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowSuccessModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+                >
+                  关闭
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSuccessModal(false);
+                    setCreateForm({ 
+                      theme: createdLink.theme, 
+                      company_name: "", 
+                      interviewer_name: "", 
+                      purpose: "", 
+                      expires_hours: 0, 
+                      max_uses: 0 
+                    });
+                    setShowCreateModal(true);
+                  }}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  继续创建
                 </button>
               </div>
             </motion.div>
