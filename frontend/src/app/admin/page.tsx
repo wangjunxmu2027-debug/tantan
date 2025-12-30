@@ -87,6 +87,15 @@ export default function AdminPage() {
   
   // 主题筛选
   const [selectedThemeFilter, setSelectedThemeFilter] = useState<string>("全部");
+  
+  // 报告查看
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [currentReport, setCurrentReport] = useState<any>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  
+  // 多选链接生成综合报告
+  const [selectedLinks, setSelectedLinks] = useState<Set<string>>(new Set());
+  const [showBatchReportButton, setShowBatchReportButton] = useState(false);
 
   // CSV 上传相关状态
   const [csvData, setCsvData] = useState<CSVRow[]>([]);
@@ -307,9 +316,108 @@ export default function AdminPage() {
   };
 
   // 查看单个链接的访谈报告
-  const viewLinkReport = (linkId: string) => {
-    // TODO: 实现查看报告功能
-    alert(`查看链接报告: ${linkId}`);
+  const viewLinkReport = async (linkId: string) => {
+    setLoadingReport(true);
+    setShowReportModal(true);
+    
+    try {
+      const savedPassword = localStorage.getItem("admin_password") || password;
+      const link = links.find(l => l.id === linkId);
+      
+      // 获取该链接的所有访谈会话
+      const response = await fetch(`${API_URL}/admin-link-report?link_id=${linkId}`, {
+        headers: { "x-admin-password": savedPassword },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentReport({
+          ...data,
+          link: link,
+        });
+      } else {
+        // 如果API不存在，使用模拟数据
+        setCurrentReport({
+          link: link,
+          interview_count: 0,
+          sessions: [],
+          message: "该链接暂无访谈记录",
+        });
+      }
+    } catch (error) {
+      console.error("获取报告失败:", error);
+      setCurrentReport({
+        link: links.find(l => l.id === linkId),
+        error: "获取报告失败，请重试",
+      });
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  // 生成综合报告
+  const generateBatchReport = async () => {
+    if (selectedLinks.size === 0) {
+      alert("请先选择链接");
+      return;
+    }
+
+    // 检查所选链接是否属于同一主题
+    const selectedLinkObjects = links.filter(l => selectedLinks.has(l.id));
+    const themes = new Set(selectedLinkObjects.map(l => l.theme));
+    
+    if (themes.size > 1) {
+      alert("请选择相同调研主题的链接");
+      return;
+    }
+
+    const theme = Array.from(themes)[0];
+    setLoadingReport(true);
+    setShowReportModal(true);
+
+    try {
+      const savedPassword = localStorage.getItem("admin_password") || password;
+      
+      // 调用综合报告API
+      const response = await fetch(`${API_URL}/admin-theme-report`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": savedPassword,
+        },
+        body: JSON.stringify({
+          theme: theme,
+          link_ids: Array.from(selectedLinks),
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentReport({
+          ...data,
+          isBatchReport: true,
+          theme: theme,
+          link_count: selectedLinks.size,
+        });
+      } else {
+        // 如果API不存在，使用模拟数据
+        setCurrentReport({
+          isBatchReport: true,
+          theme: theme,
+          link_count: selectedLinks.size,
+          interview_count: 0,
+          message: "综合报告生成功能正在开发中",
+        });
+      }
+    } catch (error) {
+      console.error("生成综合报告失败:", error);
+      setCurrentReport({
+        isBatchReport: true,
+        error: "生成综合报告失败，请重试",
+      });
+    } finally {
+      setLoadingReport(false);
+    }
   };
 
   // 导出为 CSV
@@ -675,15 +783,27 @@ export default function AdminPage() {
                 </button>
                 <span className="text-gray-500">
                   共 {links.filter(link => selectedThemeFilter === "全部" || link.theme === selectedThemeFilter).length} 个链接
+                  {selectedLinks.size > 0 && ` · 已选 ${selectedLinks.size} 个`}
                 </span>
               </div>
-              <button
-                onClick={exportToCSV}
-                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
-                <Download className="w-4 h-4" />
-                导出 CSV
-              </button>
+              <div className="flex items-center gap-2">
+                {selectedLinks.size > 0 && (
+                  <button
+                    onClick={() => generateBatchReport()}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    生成综合报告 ({selectedLinks.size})
+                  </button>
+                )}
+                <button
+                  onClick={exportToCSV}
+                  className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                >
+                  <Download className="w-4 h-4" />
+                  导出 CSV
+                </button>
+              </div>
             </div>
 
             {/* 主题筛选标签 */}
@@ -728,7 +848,21 @@ export default function AdminPage() {
                     link.isExpired || link.isMaxUsed ? "opacity-60" : ""
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedLinks.has(link.id)}
+                      onChange={(e) => {
+                        const newSet = new Set(selectedLinks);
+                        if (e.target.checked) {
+                          newSet.add(link.id);
+                        } else {
+                          newSet.delete(link.id);
+                        }
+                        setSelectedLinks(newSet);
+                      }}
+                      className="mt-1 w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold text-gray-900">
@@ -1081,6 +1215,128 @@ export default function AdminPage() {
                   className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
                 >
                   继续创建
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 报告查看弹窗 */}
+      <AnimatePresence>
+        {showReportModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowReportModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6 sticky top-0 bg-white pb-4 border-b">
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {currentReport?.isBatchReport ? "综合调研报告" : "访谈报告"}
+                  </h2>
+                  {currentReport?.isBatchReport ? (
+                    <p className="text-sm text-gray-500 mt-1">
+                      {currentReport.theme} · 共 {currentReport.link_count} 个链接
+                    </p>
+                  ) : currentReport?.link ? (
+                    <p className="text-sm text-gray-500 mt-1">
+                      {[
+                        currentReport.link.theme,
+                        currentReport.link.company_name,
+                        currentReport.link.interviewer_name
+                      ].filter(Boolean).join(' - ')}
+                    </p>
+                  ) : null}
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowReportModal(false);
+                    setSelectedLinks(new Set());
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              {loadingReport ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+                  <p className="text-gray-500 mt-4">加载报告中...</p>
+                </div>
+              ) : currentReport?.error ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                  <p className="text-red-500">{currentReport.error}</p>
+                </div>
+              ) : currentReport?.interview_count === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500">该链接暂无访谈记录</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="bg-purple-50 rounded-lg p-4">
+                    <h3 className="font-semibold text-gray-900 mb-3">基本信息</h3>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">访谈次数：</span>
+                        <span className="font-medium">{currentReport?.interview_count || 0} 次</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">完成率：</span>
+                        <span className="font-medium">{currentReport?.completion_rate || 0}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {currentReport?.sessions && currentReport.sessions.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-3">访谈记录</h3>
+                      <div className="space-y-3">
+                        {currentReport.sessions.map((session: any, index: number) => (
+                          <div key={session.session_id} className="border rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium">访谈 {index + 1}</h4>
+                              <span className="text-sm text-gray-500">
+                                {new Date(session.created_at).toLocaleString("zh-CN")}
+                              </span>
+                            </div>
+                            {session.user_info && (
+                              <p className="text-sm text-gray-600 mb-2">
+                                访谈者：{session.user_info.full_name || session.user_info.surname || "未知"}
+                              </p>
+                            )}
+                            {session.summary && (
+                              <div className="bg-gray-50 rounded p-3 text-sm">
+                                <p className="font-medium text-gray-700 mb-1">总结：</p>
+                                <p className="text-gray-600 whitespace-pre-wrap">{session.summary}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-6 pt-4 border-t flex gap-3">
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+                >
+                  关闭
                 </button>
               </div>
             </motion.div>
