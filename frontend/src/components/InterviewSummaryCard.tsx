@@ -350,17 +350,7 @@ ${summaryData.quotes.map(q => `"${q}"`).join('\n')}
         </div>
       </div>
 
-      {/* 底部操作 */}
-      {onClose && (
-        <div className="px-6 py-4 bg-gray-50 border-t">
-          <button
-            onClick={onClose}
-            className="w-full py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
-          >
-            查看详细分析报告
-          </button>
-        </div>
-      )}
+      {/* 底部操作 - 管理员功能已移至admin页面 */}
     </motion.div>
   );
 }

@@ -1293,14 +1293,91 @@ export default function AdminPage() {
                         <span className="text-gray-500">访谈次数：</span>
                         <span className="font-medium">{currentReport?.interview_count || 0} 次</span>
                       </div>
-                      <div>
-                        <span className="text-gray-500">完成率：</span>
-                        <span className="font-medium">{currentReport?.completion_rate || 0}%</span>
-                      </div>
+                      {!currentReport?.isBatchReport && (
+                        <div>
+                          <span className="text-gray-500">完成率：</span>
+                          <span className="font-medium">{currentReport?.completion_rate || 0}%</span>
+                        </div>
+                      )}
+                      {currentReport?.total_tokens && (
+                        <div>
+                          <span className="text-gray-500">Token消耗：</span>
+                          <span className="font-medium">{currentReport.total_tokens}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {currentReport?.sessions && currentReport.sessions.length > 0 && (
+                  {/* 综合报告的结构化内容 */}
+                  {currentReport?.isBatchReport && (
+                    <>
+                      {currentReport.key_findings && currentReport.key_findings.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <span className="text-blue-600">💡</span> 核心发现
+                          </h3>
+                          <div className="bg-blue-50 rounded-lg p-4 space-y-2">
+                            {currentReport.key_findings.map((finding: string, index: number) => (
+                              <p key={index} className="text-sm text-gray-700">• {finding}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentReport.pain_points && currentReport.pain_points.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <span className="text-orange-600">🔍</span> 核心痛点
+                          </h3>
+                          <div className="bg-orange-50 rounded-lg p-4 space-y-2">
+                            {currentReport.pain_points.map((point: string, index: number) => (
+                              <p key={index} className="text-sm text-gray-700">• {point}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentReport.opportunities && currentReport.opportunities.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <span className="text-green-600">💡</span> 机会洞察
+                          </h3>
+                          <div className="bg-green-50 rounded-lg p-4 space-y-2">
+                            {currentReport.opportunities.map((opp: string, index: number) => (
+                              <p key={index} className="text-sm text-gray-700">• {opp}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentReport.recommendations && currentReport.recommendations.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <span className="text-purple-600">✨</span> 行动建议
+                          </h3>
+                          <div className="bg-purple-50 rounded-lg p-4 space-y-2">
+                            {currentReport.recommendations.map((rec: string, index: number) => (
+                              <p key={index} className="text-sm text-gray-700">• {rec}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentReport.summary_report && (
+                        <div>
+                          <h3 className="font-semibold text-gray-900 mb-3">完整报告</h3>
+                          <div className="bg-gray-50 rounded-lg p-4 prose prose-sm max-w-none">
+                            <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                              {currentReport.summary_report}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 单个链接的访谈记录 */}
+                  {!currentReport?.isBatchReport && currentReport?.sessions && currentReport.sessions.length > 0 && (
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-3">访谈记录</h3>
                       <div className="space-y-3">
