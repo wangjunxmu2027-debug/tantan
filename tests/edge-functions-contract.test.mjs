@@ -198,3 +198,10 @@ test("the Vercel build uses an ESLint config compatible with the Next.js major v
   assert.match(packageJson.devDependencies["eslint-config-next"], /^\^?16\./);
   assert.match(packageJson.devDependencies.eslint, /^\^?9\./);
 });
+
+test("the Vercel dependency lockfile only references public package registries", async () => {
+  const lockfile = await readFile(new URL("frontend/package-lock.json", root), "utf8");
+
+  assert.doesNotMatch(lockfile, /bnpm\.byted\.org/);
+  assert.doesNotMatch(lockfile, /registry\.npm\.taobao\.org/);
+});
