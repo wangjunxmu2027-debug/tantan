@@ -215,3 +215,17 @@ test("the production realtime proxy only listens on the local interface by defau
   assert.match(proxy, /const HOST = process\.env\.REALTIME_PROXY_HOST \|\| "127\.0\.0\.1";/);
   assert.match(proxy, /new WebSocketServer\(\{ host: HOST, port: PORT \}\)/);
 });
+
+test("voice interview explains connection failures clearly and renders live dialogue on the stage", async () => {
+  const screen = await readFile(
+    new URL("frontend/src/components/VoiceCallScreen.tsx", root),
+    "utf8",
+  );
+
+  assert.match(screen, /function getRealtimeConnectionError/);
+  assert.match(screen, /实时语音服务暂未连接/);
+  assert.match(screen, /正在说/);
+  assert.match(screen, /正在聆听/);
+  assert.match(screen, /setLiveAgentText\(message\.content\)/);
+  assert.match(screen, /setLiveAgentText\(agentText\)/);
+});

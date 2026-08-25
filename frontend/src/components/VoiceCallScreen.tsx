@@ -8,8 +8,19 @@ function resolveRealtimeProxyUrl() {
   if (process.env.NEXT_PUBLIC_REALTIME_PROXY_URL) return process.env.NEXT_PUBLIC_REALTIME_PROXY_URL;
   if (typeof window === "undefined") return "ws://127.0.0.1:3101";
 
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "ws://127.0.0.1:3101";
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.hostname}:3101`;
+}
+
+function getRealtimeConnectionError() {
+  if (typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return "实时语音服务暂未连接。请保持本机语音服务运行后，刷新页面重试。";
+  }
+  return "实时语音服务暂未连接。请检查网络后重试。";
 }
 
 function getInterviewTitle(intervieweeName?: string | null) {
@@ -104,6 +115,7 @@ export default function VoiceCallScreen({
   const [isMuted, setIsMuted] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
+  const [liveAgentText, setLiveAgentText] = useState("");
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -256,6 +268,8 @@ export default function VoiceCallScreen({
     setError(null);
     setStatus("connecting");
     setTranscriptEntries([]);
+    setTranscript("");
+    setLiveAgentText("");
     const socket = new WebSocket(resolveRealtimeProxyUrl());
     wsRef.current = socket;
     socket.onopen = () => {
@@ -265,7 +279,10 @@ export default function VoiceCallScreen({
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === "audio") playPcm(message.data);
-      if (message.type === "agent" && message.content) upsertTranscript("agent", message.content);
+      if (message.type === "agent" && message.content) {
+        setLiveAgentText(message.content);
+        upsertTranscript("agent", message.content);
+      }
       if (message.type === "error") {
         setError(message.message);
         setStatus("error");
@@ -281,12 +298,15 @@ export default function VoiceCallScreen({
         }
         if (message.event === 550) {
           const agentText = extractRealtimeText(message.payload)?.text;
-          if (agentText) upsertTranscript("agent", agentText);
+          if (agentText) {
+            setLiveAgentText(agentText);
+            upsertTranscript("agent", agentText);
+          }
         }
       }
     };
     socket.onerror = () => {
-      setError("无法连接本地实时语音代理，请确认代理已启动。");
+      setError(getRealtimeConnectionError());
       setStatus("error");
     };
   }, [playPcm, sessionId, upsertTranscript]);
@@ -331,7 +351,8 @@ export default function VoiceCallScreen({
     }
   };
 
-  const statusText = error || (status === "connecting" ? "正在连接实时语音模型..." : status === "speaking" ? "探探正在提问..." : transcript || "正在等待探探开场...");
+  const statusLabel = status === "speaking" ? "探探正在说" : status === "listening" ? "正在聆听" : status === "connecting" ? "正在连接" : "准备开始";
+  const stageText = error || (status === "connecting" ? "正在连接实时语音服务…" : status === "speaking" ? (liveAgentText || "探探正在组织问题…") : status === "listening" ? (transcript || "请直接说话，我会实时记录。") : "等待访谈开始");
   if (!isOpen) return null;
 
   return (
@@ -349,8 +370,11 @@ export default function VoiceCallScreen({
           <motion.div className="w-52 h-52 rounded-full overflow-hidden shadow-2xl" animate={{ scale: status === "listening" || status === "speaking" ? 1 + audioLevel * 0.08 : 1 }}>
             <img src="/tantan-avatar.png" alt="探探" className="w-full h-full object-cover" />
           </motion.div>
-          <p className="mt-8 text-lg text-gray-700">{statusText}</p>
-          <p className="mt-2 text-sm text-gray-500">由火山端到端实时语音模型驱动</p>
+          <div className="mt-8 max-w-2xl rounded-3xl border border-white/70 bg-white/60 px-6 py-5 shadow-sm backdrop-blur">
+            <p className="text-xs font-semibold tracking-[0.16em] text-purple-500">{statusLabel}</p>
+            <p className="mt-2 text-lg leading-8 text-gray-700">{stageText}</p>
+            {!error && <p className="mt-3 text-sm text-gray-500">语音与识别文字会同步显示，完整记录可在右侧逐字稿查看。</p>}
+          </div>
         </div>
         <div className="pb-12 flex justify-center">
           <button onClick={toggleMute} className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg ${isMuted ? "bg-red-500 text-white" : "bg-white text-purple-600"}`}>
