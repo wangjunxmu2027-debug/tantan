@@ -188,3 +188,13 @@ test("realtime voice uses the active preview host and names both interview parti
   assert.match(screen, /探探与\$\{intervieweeName\}的访谈/);
   assert.match(screen, /getInterviewTitle\(interviewContext\?\.interviewerName\)/);
 });
+
+test("the Vercel build uses an ESLint config compatible with the Next.js major version", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("frontend/package.json", root), "utf8"),
+  );
+
+  assert.match(packageJson.dependencies.next, /^\^?16\./);
+  assert.match(packageJson.devDependencies["eslint-config-next"], /^\^?16\./);
+  assert.match(packageJson.devDependencies.eslint, /^\^?9\./);
+});
