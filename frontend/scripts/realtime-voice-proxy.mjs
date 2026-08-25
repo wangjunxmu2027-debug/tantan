@@ -2,6 +2,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { gzipSync, gunzipSync } from "node:zlib";
 
 const PORT = Number(process.env.REALTIME_PROXY_PORT || 3101);
+const HOST = process.env.REALTIME_PROXY_HOST || "127.0.0.1";
 const VOLC_APP_ID = process.env.VOLC_REALTIME_APP_ID;
 const VOLC_ACCESS_TOKEN = process.env.VOLC_REALTIME_ACCESS_TOKEN;
 const VOLC_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue";
@@ -137,7 +138,7 @@ function firstQuestion(context = {}) {
     : `${name}您好，我是探探。感谢您参与本次访谈，我们现在开始吧。`;
 }
 
-const server = new WebSocketServer({ port: PORT });
+const server = new WebSocketServer({ host: HOST, port: PORT });
 server.on("connection", (client) => {
   let upstream;
   let sessionId;
@@ -214,4 +215,4 @@ server.on("connection", (client) => {
   client.on("close", () => upstream?.close());
 });
 
-console.log(`Realtime voice proxy listening on ws://127.0.0.1:${PORT}`);
+console.log(`Realtime voice proxy listening on ws://${HOST}:${PORT}`);

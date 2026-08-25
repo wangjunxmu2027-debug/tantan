@@ -205,3 +205,13 @@ test("the Vercel dependency lockfile only references public package registries",
   assert.doesNotMatch(lockfile, /bnpm\.byted\.org/);
   assert.doesNotMatch(lockfile, /registry\.npm\.taobao\.org/);
 });
+
+test("the production realtime proxy only listens on the local interface by default", async () => {
+  const proxy = await readFile(
+    new URL("frontend/scripts/realtime-voice-proxy.mjs", root),
+    "utf8",
+  );
+
+  assert.match(proxy, /const HOST = process\.env\.REALTIME_PROXY_HOST \|\| "127\.0\.0\.1";/);
+  assert.match(proxy, /new WebSocketServer\(\{ host: HOST, port: PORT \}\)/);
+});
