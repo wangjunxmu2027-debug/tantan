@@ -1,26 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Volume2, VolumeX, Phone, StopCircle } from "lucide-react";
+import { Send, Loader2, Phone, StopCircle } from "lucide-react";
 import MessageBubble from "./MessageBubble";
-import VoiceInput from "./VoiceInput";
 import { type Message } from "@/lib/api";
-
-// 懒加载 RTC 组件（暂时保留）
-const RTCVoiceChat = lazy(() => import("./RTCVoiceChat"));
 
 interface ChatWindowProps {
   messages: Message[];
   onSendMessage: (content: string) => void;
   isLoading: boolean;
   stage: string;
-  sessionId?: string; // 添加 sessionId 用于 RTC
-  onVoiceCallOpen?: () => void; // 打开语音通话回调
-  isVoiceCallActive?: boolean; // 语音通话是否激活（激活时禁用自动播报）
-  presetVoice?: string; // 售前预设的音色，用户不可更改
-  onInterrupt?: () => void; // 打断回调
-  interruptedMessage?: string; // 被打断的消息内容，需要退回到输入框
+  sessionId?: string;
+  onVoiceCallOpen?: () => void;
+  onInterrupt?: () => void;
+  interruptedMessage?: string;
 }
 
 export default function ChatWindow({
@@ -30,13 +24,10 @@ export default function ChatWindow({
   stage,
   sessionId,
   onVoiceCallOpen,
-  isVoiceCallActive = false,
-  presetVoice = "xinwen",
   onInterrupt,
   interruptedMessage,
 }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
-  const [autoSpeak, setAutoSpeak] = useState(false); // 默认关闭自动朗读
   const [pendingMessage, setPendingMessage] = useState<string>(""); // 待发送的消息
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,28 +79,11 @@ export default function ChatWindow({
     }
   };
 
-  // 处理语音输入结果
-  const handleVoiceResult = (transcript: string) => {
-    setInputValue((prev) => prev + transcript);
-    inputRef.current?.focus();
-  };
-
-  // 切换自动朗读
-  const toggleAutoSpeak = () => {
-    if (autoSpeak) {
-      // 关闭时停止当前播放
-      window.speechSynthesis?.cancel();
-    }
-    setAutoSpeak(!autoSpeak);
-  };
-
   // 打断思考
   const handleInterrupt = () => {
     if (onInterrupt) {
       onInterrupt();
     }
-    // 停止语音播放
-    window.speechSynthesis?.cancel();
   };
 
   // 判断是否完成
@@ -130,10 +104,6 @@ export default function ChatWindow({
               <MessageBubble
                 role={message.role}
                 content={message.content}
-                isLatest={index === messages.length - 1}
-                autoSpeak={autoSpeak && !isVoiceCallActive}
-                voice={presetVoice}
-                stopPlayback={isVoiceCallActive}
               />
             </motion.div>
           ))}
@@ -205,33 +175,7 @@ export default function ChatWindow({
       <div className="border-t bg-white p-3 md:p-4 w-full safe-area-bottom">
         <div className="max-w-5xl mx-auto px-2 md:px-8">
           <div className="flex items-center gap-2 md:gap-3">
-            {/* 语音输入按钮 */}
-            <VoiceInput onResult={handleVoiceResult} disabled={isCompleted} />
-
-            {/* 自动朗读开关 - 简化版，只控制开关，不能选音色 */}
-            <button
-              onClick={toggleAutoSpeak}
-              className={`
-                h-10 md:h-12 px-3 rounded-full flex items-center gap-1.5
-                transition-all duration-300 flex-shrink-0
-                ${autoSpeak 
-                  ? 'bg-purple-100 text-purple-600 hover:bg-purple-200' 
-                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                }
-              `}
-              title={autoSpeak ? "关闭自动朗读" : "开启自动朗读"}
-            >
-              {autoSpeak ? (
-                <Volume2 className="w-4 h-4 md:w-5 md:h-5" />
-              ) : (
-                <VolumeX className="w-4 h-4 md:w-5 md:h-5" />
-              )}
-              <span className="text-xs hidden md:inline">
-                {autoSpeak ? "朗读开" : "朗读关"}
-              </span>
-            </button>
-
-            {/* 语音通话按钮 - 打开全屏语音界面 */}
+            {/* 唯一的语音入口：火山端到端实时语音访谈 */}
             {sessionId && !isCompleted && onVoiceCallOpen && (
               <button
                 onClick={onVoiceCallOpen}
@@ -308,7 +252,7 @@ export default function ChatWindow({
 
           {/* 提示文字 - 移动端隐藏 */}
           <p className="hidden md:block text-xs text-gray-400 mt-2 text-center">
-            按 Enter 发送，Shift + Enter 换行 | 支持语音输入
+            按 Enter 发送，Shift + Enter 换行 | 点击电话按钮进入实时语音访谈
           </p>
 
         </div>

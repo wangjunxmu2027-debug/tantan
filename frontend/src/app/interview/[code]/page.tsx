@@ -8,7 +8,7 @@ import Header from "@/components/Header";
 import WelcomeScreen from "@/components/WelcomeScreen";
 import InterviewReport from "@/components/InterviewReport";
 import InterviewSummaryCard from "@/components/InterviewSummaryCard";
-import { interviewApi, type Message } from "@/lib/api";
+import { interviewApi, type InterviewQuestions, type Message } from "@/lib/api";
 import { FileText, X } from "lucide-react";
 
 // 懒加载语音通话全屏组件
@@ -38,13 +38,18 @@ export default function InterviewPage() {
   const [showSummaryCard, setShowSummaryCard] = useState(false);
   const [interruptedMessage, setInterruptedMessage] = useState<string>(""); // 被打断的消息
   const [lastUserMessage, setLastUserMessage] = useState<string>(""); // 记录最后一条用户消息
+  const [interviewContext, setInterviewContext] = useState<{
+    theme: string;
+    companyName: string | null;
+    interviewerName: string | null;
+    purpose: string | null;
+    questions: InterviewQuestions;
+  } | null>(null);
   
   // 用于取消请求的 AbortController
   const abortControllerRef = useRef<AbortController | null>(null);
+  const startRequestedRef = useRef(false);
   
-  // 音色由售前设置，用户不可更改
-  const presetVoice = linkInfo?.voice || "xinwen";
-
   // 加载链接信息
   useEffect(() => {
     const storedLink = sessionStorage.getItem("interview_link");
@@ -79,6 +84,8 @@ export default function InterviewPage() {
 
   // 开始访谈
   const handleStart = async () => {
+    if (startRequestedRef.current) return;
+    startRequestedRef.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -88,6 +95,7 @@ export default function InterviewPage() {
         preset_company: linkInfo?.company_name,
         preset_name: linkInfo?.interviewer_name || undefined,
         link_code: linkCode,
+        purpose: linkInfo?.purpose || undefined,
       });
       
       setSessionId(response.session_id);
@@ -98,8 +106,17 @@ export default function InterviewPage() {
         },
       ]);
       setStage(response.stage);
+      setInterviewContext({
+        theme: response.context.theme,
+        companyName: response.context.company_name,
+        interviewerName: response.context.interviewer_name,
+        purpose: response.context.purpose,
+        questions: response.questions,
+      });
       setIsStarted(true);
+      setShowVoiceCall(true);
     } catch (err) {
+      startRequestedRef.current = false;
       console.error("创建会话失败:", err);
       setError("创建会话失败，请检查后端服务是否启动");
     } finally {
@@ -237,8 +254,6 @@ export default function InterviewPage() {
                 stage={stage}
                 sessionId={sessionId || undefined}
                 onVoiceCallOpen={() => setShowVoiceCall(true)}
-                isVoiceCallActive={showVoiceCall}
-                presetVoice={presetVoice}
                 onInterrupt={handleInterrupt}
                 interruptedMessage={interruptedMessage}
               />
@@ -344,7 +359,7 @@ export default function InterviewPage() {
             onSendMessage={handleSendMessage}
             latestAIMessage={messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
             isLoading={isLoading}
-            voice={presetVoice}
+            interviewContext={interviewContext}
           />
         </Suspense>
       )}

@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
-import { Mic, MicOff, X, Volume2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Captions, Mic, MicOff, PanelRightClose, X } from "lucide-react";
 
-// API 地址
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://xvtgrzavwqesdfcifyrq.supabase.co/functions/v1";
+function resolveRealtimeProxyUrl() {
+  if (process.env.NEXT_PUBLIC_REALTIME_PROXY_URL) return process.env.NEXT_PUBLIC_REALTIME_PROXY_URL;
+  if (typeof window === "undefined") return "ws://127.0.0.1:3101";
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.hostname}:3101`;
+}
+
+function getInterviewTitle(intervieweeName?: string | null) {
+  return intervieweeName ? `探探与${intervieweeName}的访谈` : "探探的访谈";
+}
 
 interface VoiceCallScreenProps {
   isOpen: boolean;
@@ -15,709 +24,360 @@ interface VoiceCallScreenProps {
   latestAIMessage?: string;
   isLoading: boolean;
   voice?: string;
+  interviewContext?: {
+    theme?: string;
+    companyName?: string | null;
+    interviewerName?: string | null;
+    purpose?: string | null;
+    questions?: {
+      part1?: string[];
+      part2?: string[];
+      part3?: string[];
+    };
+  } | null;
 }
 
-type CallStatus = "idle" | "listening" | "processing" | "speaking";
+type CallStatus = "idle" | "connecting" | "listening" | "speaking" | "error";
+type TranscriptEntry = { speaker: "agent" | "user"; content: string; isPartial?: boolean };
+type RealtimeText = { text: string; isFinal: boolean };
+
+function extractRealtimeText(payload: any): RealtimeText | null {
+  const candidates = [
+    payload?.results?.at(-1),
+    payload?.result,
+    payload?.data?.results?.at(-1),
+    payload?.data?.result,
+    payload,
+  ];
+
+  for (const candidate of candidates) {
+    const text = candidate?.text || candidate?.content || candidate?.utterance || candidate?.transcript;
+    if (typeof text === "string" && text.trim()) {
+      return {
+        text,
+        isFinal: candidate?.is_final ?? candidate?.isFinal ?? candidate?.final ?? candidate?.definite ?? true,
+      };
+    }
+  }
+
+  return null;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string) {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate = 16000) {
+  const ratio = inputRate / outputRate;
+  const output = new Int16Array(Math.floor(input.length / ratio));
+
+  for (let index = 0; index < output.length; index += 1) {
+    const start = Math.floor(index * ratio);
+    const end = Math.min(Math.floor((index + 1) * ratio), input.length);
+    let sum = 0;
+    for (let sample = start; sample < end; sample += 1) sum += input[sample];
+    const value = Math.max(-1, Math.min(1, sum / Math.max(1, end - start)));
+    output[index] = value < 0 ? value * 0x8000 : value * 0x7fff;
+  }
+
+  return new Uint8Array(output.buffer);
+}
 
 export default function VoiceCallScreen({
   isOpen,
   onClose,
   sessionId,
   onSendMessage,
-  latestAIMessage,
-  isLoading,
-  voice = "xinwen",
+  interviewContext,
 }: VoiceCallScreenProps) {
   const [status, setStatus] = useState<CallStatus>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
+  const [isTranscriptOpen, setIsTranscriptOpen] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
-  
-  // 音频播放相关
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  
-  // 录音相关
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isRecordingRef = useRef(false);
-  
-  // 音量检测相关
-  const micAnalyserRef = useRef<AnalyserNode | null>(null);
-  const micAudioContextRef = useRef<AudioContext | null>(null);
-  
-  // 用于追踪已播放的消息，避免重复播放
-  const playedMessagesRef = useRef<Set<string>>(new Set());
-  const lastMessageRef = useRef<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // 清理函数
-  const cleanup = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {}
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    isRecordingRef.current = false;
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const inputContextRef = useRef<AudioContext | null>(null);
+  const outputContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const queuedAudioTimeRef = useRef(0);
+  const isListeningRef = useRef(false);
+  const isMutedRef = useRef(false);
+  const onSendMessageRef = useRef(onSendMessage);
+  const interviewContextRef = useRef(interviewContext);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const startCaptureRef = useRef<() => void>(() => undefined);
+  const shouldCaptureAfterGreetingRef = useRef(false);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
+  useEffect(() => {
+    onSendMessageRef.current = onSendMessage;
+  }, [onSendMessage]);
+
+  useEffect(() => {
+    interviewContextRef.current = interviewContext;
+  }, [interviewContext]);
+
+  useEffect(() => {
+    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
+  }, [transcriptEntries]);
+
+  const upsertTranscript = useCallback((speaker: TranscriptEntry["speaker"], content: string, isPartial = false) => {
+    if (!content.trim()) return;
+    setTranscriptEntries((entries) => {
+      const last = entries.at(-1);
+      if (isPartial && last?.speaker === speaker && last.isPartial) {
+        return [...entries.slice(0, -1), { speaker, content, isPartial: true }];
+      }
+      if (!isPartial && last?.speaker === speaker && last.content === content) return entries;
+      return [...entries, { speaker, content, isPartial }];
+    });
   }, []);
 
-  // 使用浏览器 Web Speech API 作为备选
-  const useBrowserASR = useCallback(() => {
-    if (typeof window === "undefined") return;
-    
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("浏览器不支持语音识别");
-      setTranscript("浏览器不支持语音识别");
-      setTimeout(() => {
-        if (!isMuted && isOpen) startRecording();
-      }, 2000);
+  const stopCapture = useCallback(() => {
+    isListeningRef.current = false;
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    processorRef.current = null;
+    sourceRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    void inputContextRef.current?.close();
+    inputContextRef.current = null;
+    setAudioLevel(0);
+  }, []);
+
+  const playPcm = useCallback((base64: string) => {
+    const bytes = base64ToBytes(base64);
+    const samples = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+    const context = outputContextRef.current || new AudioContext({ sampleRate: 24000 });
+    outputContextRef.current = context;
+    void context.resume();
+    const audioBuffer = context.createBuffer(1, samples.length, 24000);
+    const channel = audioBuffer.getChannelData(0);
+    for (let index = 0; index < samples.length; index += 1) channel[index] = samples[index] / 0x8000;
+
+    const source = context.createBufferSource();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    source.buffer = audioBuffer;
+    source.connect(analyser);
+    analyser.connect(context.destination);
+    const startAt = Math.max(context.currentTime, queuedAudioTimeRef.current);
+    source.start(startAt);
+    queuedAudioTimeRef.current = startAt + audioBuffer.duration;
+    setStatus("speaking");
+
+    source.onended = () => {
+      if (context.currentTime >= queuedAudioTimeRef.current - 0.03) {
+        setAudioLevel(0);
+        if (!isMuted) setStatus("listening");
+        if (shouldCaptureAfterGreetingRef.current) {
+          shouldCaptureAfterGreetingRef.current = false;
+          startCaptureRef.current();
+        }
+      }
+    };
+  }, []);
+
+  const startCapture = useCallback(async () => {
+    if (isListeningRef.current || isMutedRef.current) return;
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      streamRef.current = stream;
+      const context = new AudioContext();
+      inputContextRef.current = context;
+      const source = context.createMediaStreamSource(stream);
+      const processor = context.createScriptProcessor(2048, 1, 1);
+      sourceRef.current = source;
+      processorRef.current = processor;
+      isListeningRef.current = true;
+
+      processor.onaudioprocess = (event) => {
+        if (!isListeningRef.current || socket.readyState !== WebSocket.OPEN) return;
+        const input = event.inputBuffer.getChannelData(0);
+        const pcm = downsampleToPcm16(input, context.sampleRate);
+        let total = 0;
+        for (const sample of input) total += sample * sample;
+        setAudioLevel(Math.min(1, Math.sqrt(total / input.length) * 5));
+        socket.send(JSON.stringify({ type: "audio", data: bytesToBase64(pcm) }));
+      };
+      source.connect(processor);
+      processor.connect(context.destination);
+      setStatus("listening");
+    } catch {
+      setError("无法访问麦克风，请在浏览器中允许麦克风权限。");
+      setStatus("error");
+    }
+  }, []);
+
+  startCaptureRef.current = () => { void startCapture(); };
+
+  const stopRealtime = useCallback(() => {
+    stopCapture();
+    const socket = wsRef.current;
+    wsRef.current = null;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "finish" }));
+    }
+    socket?.close();
+    queuedAudioTimeRef.current = 0;
+  }, [stopCapture]);
+
+  const pauseVoiceCall = useCallback(() => {
+    stopCapture();
+    void outputContextRef.current?.suspend();
+    setStatus("idle");
+  }, [stopCapture]);
+
+  const startRealtime = useCallback(() => {
+    setError(null);
+    setStatus("connecting");
+    setTranscriptEntries([]);
+    const socket = new WebSocket(resolveRealtimeProxyUrl());
+    wsRef.current = socket;
+    socket.onopen = () => {
+      if (wsRef.current !== socket) return;
+      socket.send(JSON.stringify({ type: "start", sessionId, context: interviewContextRef.current }));
+    };
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "audio") playPcm(message.data);
+      if (message.type === "agent" && message.content) upsertTranscript("agent", message.content);
+      if (message.type === "error") {
+        setError(message.message);
+        setStatus("error");
+      }
+      if (message.type === "event") {
+        if (message.event === 150) shouldCaptureAfterGreetingRef.current = true;
+        if (message.event === 451) {
+          const recognized = extractRealtimeText(message.payload);
+          if (recognized) {
+            setTranscript(recognized.text);
+            upsertTranscript("user", recognized.text, !recognized.isFinal);
+          }
+        }
+        if (message.event === 550) {
+          const agentText = extractRealtimeText(message.payload)?.text;
+          if (agentText) upsertTranscript("agent", agentText);
+        }
+      }
+    };
+    socket.onerror = () => {
+      setError("无法连接本地实时语音代理，请确认代理已启动。");
+      setStatus("error");
+    };
+  }, [playPcm, sessionId, upsertTranscript]);
+
+  const resumeVoiceCall = useCallback(() => {
+    const socket = wsRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    void outputContextRef.current?.resume();
+    if (!isMutedRef.current) void startCapture();
+  }, [startCapture]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      pauseVoiceCall();
       return;
     }
 
-    console.log("回退到浏览器语音识别");
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "zh-CN";
-
-    recognition.onresult = (event: any) => {
-      let finalTranscript = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          setTranscript(event.results[i][0].transcript);
-        }
-      }
-      if (finalTranscript) {
-        console.log("浏览器 ASR 识别结果:", finalTranscript);
-        setTranscript(finalTranscript);
-        setStatus("processing");
-        onSendMessage(finalTranscript);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("浏览器语音识别错误:", event.error);
-      if (event.error !== "no-speech" && !isMuted && isOpen) {
-        setTimeout(() => startRecording(), 1000);
-      } else if (event.error === "no-speech") {
-        setTranscript("未检测到语音");
-        setTimeout(() => {
-          if (!isMuted && isOpen) startRecording();
-        }, 1000);
-      }
-    };
-
-    recognition.onend = () => {
-      // 如果没有识别到结果，重新开始录音
-      if (status === "listening" && !isMuted && isOpen) {
-        setTimeout(() => startRecording(), 500);
-      }
-    };
-
-    setStatus("listening");
-    setTranscript("请说话...");
-    recognition.start();
-  }, [onSendMessage, isMuted, isOpen, status]);
-
-  // 发送音频到火山引擎 ASR（带回退）
-  const sendToASR = async (audioBlob: Blob) => {
-    try {
-      setStatus("processing");
-      setTranscript("识别中...");
-
-      // 转换为 base64
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const base64 = btoa(
-        new Uint8Array(arrayBuffer).reduce(
-          (data, byte) => data + String.fromCharCode(byte),
-          ""
-        )
-      );
-
-      console.log("发送 ASR 请求, 音频大小:", audioBlob.size);
-
-      const response = await fetch(`${API_URL}/asr`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          audio: base64,
-          format: "webm",
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("火山引擎 ASR 失败，回退到浏览器:", errorData);
-        // 回退到浏览器 ASR
-        useBrowserASR();
-        return;
-      }
-
-      const result = await response.json();
-      console.log("ASR 结果:", result);
-      const recognizedText = result.text?.trim();
-
-      if (recognizedText) {
-        setTranscript(recognizedText);
-        setStatus("processing");
-        // 发送消息到对话流
-        onSendMessage(recognizedText);
-        // 等待 AI 回复后会触发 TTS 播放
-      } else {
-        setTranscript("未检测到语音，请再说一次");
-        // 重新开始录音
-        setTimeout(() => {
-          if (!isMuted && isOpen) {
-            setStatus("listening");
-            startRecording();
-          }
-        }, 1500);
-      }
-    } catch (error) {
-      console.error("ASR 请求失败，回退到浏览器:", error);
-      // 回退到浏览器 ASR
-      useBrowserASR();
+    const socket = wsRef.current;
+    const hasActiveSession = socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING;
+    if (hasActiveSession) {
+      resumeVoiceCall();
+      return;
     }
-  };
 
-  // 开始录音 - 使用浏览器 Web Speech API（更可靠）
-  const startRecording = useCallback(async () => {
-    if (isMuted || isRecordingRef.current) return;
+    startRealtime();
+  }, [isOpen, pauseVoiceCall, resumeVoiceCall, startRealtime]);
 
-    // 优先使用浏览器 Web Speech API
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (SpeechRecognition) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.lang = "zh-CN";
-        recognition.maxAlternatives = 1;
-        
-        isRecordingRef.current = true;
-        setStatus("listening");
-        setTranscript("");
-        
-        // 获取麦克风用于音量可视化
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = stream;
-          
-          if (!micAudioContextRef.current) {
-            micAudioContextRef.current = new AudioContext();
-          }
-          const source = micAudioContextRef.current.createMediaStreamSource(stream);
-          const analyser = micAudioContextRef.current.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-          micAnalyserRef.current = analyser;
-          
-          // 音量可视化
-          const updateLevel = () => {
-            if (!micAnalyserRef.current || !isRecordingRef.current) return;
-            const dataArray = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
-            micAnalyserRef.current.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            setAudioLevel(Math.min(average / 100, 1));
-            animationFrameRef.current = requestAnimationFrame(updateLevel);
-          };
-          updateLevel();
-        } catch (e) {
-          console.log("无法获取麦克风用于可视化");
-        }
-        
-        recognition.onresult = (event: any) => {
-          let finalTranscript = "";
-          let interimTranscript = "";
-          
-          for (let i = 0; i < event.results.length; i++) {
-            if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript;
-            } else {
-              interimTranscript += event.results[i][0].transcript;
-            }
-          }
-          
-          // 显示临时结果
-          if (interimTranscript) {
-            setTranscript(interimTranscript);
-          }
-          
-          // 有最终结果时发送
-          if (finalTranscript) {
-            console.log("语音识别结果:", finalTranscript);
-            setTranscript(finalTranscript);
-            setStatus("processing");
-            isRecordingRef.current = false;
-            
-            // 停止麦克风
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach(track => track.stop());
-            }
-            if (animationFrameRef.current) {
-              cancelAnimationFrame(animationFrameRef.current);
-            }
-            setAudioLevel(0);
-            
-            // 发送消息
-            onSendMessage(finalTranscript);
-          }
-        };
-        
-        recognition.onerror = (event: any) => {
-          console.error("语音识别错误:", event.error);
-          isRecordingRef.current = false;
-          
-          if (event.error === "no-speech") {
-            setTranscript("未检测到语音，请再试一次");
-            setTimeout(() => {
-              if (!isMuted && isOpen) startRecording();
-            }, 1500);
-          } else if (event.error !== "aborted") {
-            setTranscript("识别出错，请重试");
-            setTimeout(() => {
-              if (!isMuted && isOpen) startRecording();
-            }, 2000);
-          }
-        };
-        
-        recognition.onend = () => {
-          isRecordingRef.current = false;
-          if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-          }
-          setAudioLevel(0);
-          
-          // 如果还在监听状态且没有被静音，继续识别
-          if (status === "listening" && !isMuted && isOpen) {
-            setTimeout(() => startRecording(), 500);
-          }
-        };
-        
-        recognition.start();
-        
-      } catch (error) {
-        console.error("语音识别启动失败:", error);
-        setTranscript("语音识别不可用");
-        setStatus("idle");
-      }
-    } else {
-      // 浏览器不支持，尝试使用录音 + 火山引擎 ASR
-      console.log("浏览器不支持 Web Speech API，使用录音方式");
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: { echoCancellation: true, noiseSuppression: true }
-        });
-        streamRef.current = stream;
-        
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-        isRecordingRef.current = true;
-        
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-        
-        mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-          if (audioBlob.size > 1000) {
-            sendToASR(audioBlob);
-          }
-          isRecordingRef.current = false;
-        };
-        
-        mediaRecorder.start();
-        setStatus("listening");
-        setTranscript("");
-        
-        // 5秒后自动停止
-        setTimeout(() => {
-          if (mediaRecorder.state === "recording") {
-            mediaRecorder.stop();
-            stream.getTracks().forEach(t => t.stop());
-          }
-        }, 5000);
-        
-      } catch (error) {
-        console.error("无法访问麦克风:", error);
-        setTranscript("无法访问麦克风");
-        setStatus("idle");
-      }
-    }
-  }, [isMuted, isOpen, onSendMessage, status]);
+  useEffect(() => () => {
+    stopRealtime();
+    inputContextRef.current?.close();
+    outputContextRef.current?.close();
+  }, [stopRealtime]);
 
-  // 停止录音
-  const stopRecording = useCallback(() => {
-    cleanup();
-    setStatus("idle");
-    setAudioLevel(0);
-  }, [cleanup]);
-
-  // 监听 AI 回复并播放语音（只播放新消息）
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    // 只有当消息变化时才播放
-    if (latestAIMessage && latestAIMessage !== lastMessageRef.current && !isLoading) {
-      // 检查是否已播放过（避免进入时重复播放）
-      const messageKey = latestAIMessage.slice(0, 50); // 用前50个字符作为key
-      if (!playedMessagesRef.current.has(messageKey)) {
-        playedMessagesRef.current.add(messageKey);
-        lastMessageRef.current = latestAIMessage;
-        playTTS(latestAIMessage);
-      }
-    }
-  }, [latestAIMessage, isLoading, isOpen]);
-
-  // 播放 TTS
-  const playTTS = async (text: string) => {
-    setStatus("speaking");
-    
-    try {
-      const cleanedText = text
-        .replace(/\*\*/g, '')
-        .replace(/\*/g, '')
-        .replace(/#{1,6}\s/g, '')
-        .replace(/\n{2,}/g, '。')
-        .replace(/\n/g, '，')
-        .trim();
-
-      const response = await fetch(`${API_URL}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanedText, voice }),
-      });
-
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        // fallback - 无法播放，直接开始录音
-        setStatus("listening");
-        startRecording();
-        return;
-      }
-
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-
-      // 创建音频分析器用于声纹动效
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
-      }
-      
-      // 检查是否已经连接过
-      try {
-        const source = audioContextRef.current.createMediaElementSource(audio);
-        const analyser = audioContextRef.current.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        analyser.connect(audioContextRef.current.destination);
-        analyserRef.current = analyser;
-      } catch (e) {
-        // 如果已经连接过，忽略错误
-        console.log("音频源已连接");
-      }
-
-      // 开始分析音频
-      const dataArray = new Uint8Array(128);
-      const updateLevel = () => {
-        if (analyserRef.current && status === "speaking") {
-          analyserRef.current.getByteFrequencyData(dataArray);
-          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          setAudioLevel(average / 255);
-          animationFrameRef.current = requestAnimationFrame(updateLevel);
-        }
-      };
-
-      audio.onplay = () => {
-        updateLevel();
-      };
-
-      audio.onended = () => {
-        setAudioLevel(0);
-        URL.revokeObjectURL(audioUrl);
-        setStatus("listening");
-        // 开始下一轮录音
-        startRecording();
-      };
-
-      await audio.play();
-    } catch (error) {
-      console.error("TTS 播放失败:", error);
-      setStatus("listening");
-      startRecording();
-    }
-  };
-
-  // 切换静音
   const toggleMute = () => {
     if (isMuted) {
       setIsMuted(false);
-      startRecording();
+      startCapture();
     } else {
       setIsMuted(true);
-      stopRecording();
-    }
-  };
-
-  // 关闭通话
-  const handleClose = () => {
-    stopRecording();
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    cleanup();
-    onClose();
-  };
-
-  // 打开时初始化
-  useEffect(() => {
-    if (isOpen) {
-      // 记录当前消息为已播放，避免进入时重复播放
-      if (latestAIMessage) {
-        const messageKey = latestAIMessage.slice(0, 50);
-        playedMessagesRef.current.add(messageKey);
-        lastMessageRef.current = latestAIMessage;
-      }
-      
-      // 延迟开始录音，让用户准备好
-      if (!isMuted) {
-        const timer = setTimeout(() => {
-          setStatus("listening");
-          startRecording();
-        }, 800);
-        return () => clearTimeout(timer);
-      }
-    } else {
-      // 关闭时清理
-      stopRecording();
+      stopCapture();
       setStatus("idle");
-      setTranscript("");
-    }
-  }, [isOpen]);
-
-  // 组件卸载时清理
-  useEffect(() => {
-    return () => {
-      cleanup();
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-      if (micAudioContextRef.current) {
-        micAudioContextRef.current.close();
-      }
-    };
-  }, [cleanup]);
-
-  // 获取状态文本
-  const getStatusText = () => {
-    switch (status) {
-      case "listening":
-        return transcript || "你可以开始说话";
-      case "processing":
-        return transcript || "探探正在思考...";
-      case "speaking":
-        return "探探正在回答...";
-      default:
-        return "点击麦克风开始";
     }
   };
 
+  const statusText = error || (status === "connecting" ? "正在连接实时语音模型..." : status === "speaking" ? "探探正在提问..." : transcript || "正在等待探探开场...");
   if (!isOpen) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] flex flex-col"
-      style={{
-        background: "linear-gradient(135deg, #fce4ec 0%, #e8eaf6 50%, #e0f7fa 100%)",
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-      }}
-    >
-      {/* 头部 */}
-      <div className="flex items-center justify-between p-4 pt-12">
-        <div className="w-10" />
-        <div className="text-gray-600 font-medium">语音访谈</div>
-        <button
-          onClick={handleClose}
-          className="w-10 h-10 flex items-center justify-center text-gray-500"
-        >
-          <X className="w-6 h-6" />
-        </button>
-      </div>
-
-      {/* 中间区域 - 声纹动效 */}
-      <div className="flex-1 flex flex-col items-center justify-center">
-        {/* 声纹圆环 */}
-        <div className="relative">
-          {/* 外层波纹 */}
-          {[...Array(3)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute inset-0 rounded-full"
-              style={{
-                background: "linear-gradient(135deg, rgba(233, 213, 255, 0.4) 0%, rgba(196, 181, 253, 0.3) 100%)",
-              }}
-              animate={{
-                scale: status === "speaking" || status === "listening" 
-                  ? [1, 1.2 + audioLevel * 0.5 + i * 0.15, 1] 
-                  : 1,
-                opacity: status === "speaking" || status === "listening"
-                  ? [0.6, 0.2, 0.6]
-                  : 0.3,
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                delay: i * 0.3,
-                ease: "easeInOut",
-              }}
-            />
-          ))}
-
-          {/* 主圆形 */}
-          <motion.div
-            className="relative w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden shadow-2xl"
-            style={{
-              background: "linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #ce93d8 100%)",
-            }}
-            animate={{
-              scale: (status === "speaking" || status === "listening") ? 1 + audioLevel * 0.1 : 1,
-            }}
-            transition={{ duration: 0.1 }}
-          >
-            {/* 探探头像 */}
-            <img
-              src="/tantan-avatar.png"
-              alt="探探"
-              className="w-full h-full object-cover"
-              style={{ opacity: 0.9 }}
-            />
-
-            {/* 声纹叠加效果 */}
-            {(status === "speaking" || status === "listening") && (
-              <motion.div
-                className="absolute inset-0"
-                style={{
-                  background: `radial-gradient(circle, rgba(147, 51, 234, ${audioLevel * 0.3}) 0%, transparent 70%)`,
-                }}
-              />
-            )}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[9999] flex overflow-hidden" style={{ background: "linear-gradient(135deg, #fce4ec 0%, #e8eaf6 50%, #e0f7fa 100%)" }}>
+      <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between p-4 pt-12">
+          <button type="button" onClick={() => setIsTranscriptOpen((open) => !open)} className="flex items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-sm text-gray-600 shadow-sm backdrop-blur hover:bg-white" aria-label={isTranscriptOpen ? "收起逐字稿" : "展开逐字稿"}>
+            <Captions className="h-4 w-4" />
+            <span className="hidden sm:inline">{isTranscriptOpen ? "收起逐字稿" : "展开逐字稿"}</span>
+          </button>
+          <div className="text-gray-600 font-medium">{getInterviewTitle(interviewContext?.interviewerName)}</div>
+          <button onClick={() => { pauseVoiceCall(); onClose(); }} className="w-10 h-10 flex items-center justify-center text-gray-500"><X className="w-6 h-6" /></button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+          <motion.div className="w-52 h-52 rounded-full overflow-hidden shadow-2xl" animate={{ scale: status === "listening" || status === "speaking" ? 1 + audioLevel * 0.08 : 1 }}>
+            <img src="/tantan-avatar.png" alt="探探" className="w-full h-full object-cover" />
           </motion.div>
+          <p className="mt-8 text-lg text-gray-700">{statusText}</p>
+          <p className="mt-2 text-sm text-gray-500">由火山端到端实时语音模型驱动</p>
         </div>
-
-        {/* 状态指示点 */}
-        <div className="flex gap-2 mt-12">
-          {[...Array(3)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="w-2.5 h-2.5 rounded-full bg-gray-400"
-              animate={{
-                scale: status === "listening" || status === "speaking" || status === "processing"
-                  ? [1, 1.3, 1]
-                  : 1,
-                opacity: [0.4, 1, 0.4],
-              }}
-              transition={{
-                duration: 1,
-                repeat: Infinity,
-                delay: i * 0.2,
-              }}
-            />
-          ))}
+        <div className="pb-12 flex justify-center">
+          <button onClick={toggleMute} className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg ${isMuted ? "bg-red-500 text-white" : "bg-white text-purple-600"}`}>
+            {isMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+          </button>
         </div>
-
-        {/* 状态文本 */}
-        <motion.p
-          className="mt-6 text-gray-600 text-lg text-center px-8 max-w-md"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          {getStatusText()}
-        </motion.p>
-      </div>
-
-      {/* 底部控制栏 */}
-      <div className="pb-12 pt-6">
-        <div className="flex justify-center items-center gap-6">
-          {/* 麦克风按钮 */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleMute}
-            className={`
-              w-16 h-16 rounded-full flex items-center justify-center shadow-lg
-              ${isMuted 
-                ? "bg-gray-200 text-gray-500" 
-                : status === "listening" 
-                  ? "bg-green-100 text-green-600" 
-                  : "bg-white text-gray-700"
-              }
-            `}
-          >
-            {isMuted ? (
-              <MicOff className="w-7 h-7" />
-            ) : (
-              <Mic className="w-7 h-7" />
-            )}
-          </motion.button>
-
-          {/* 声音指示 */}
-          <motion.div
-            className={`
-              w-16 h-16 rounded-full flex items-center justify-center shadow-lg
-              ${status === "speaking" ? "bg-purple-100 text-purple-600" : "bg-white text-gray-400"}
-            `}
-            animate={{
-              scale: status === "speaking" ? [1, 1.1, 1] : 1,
-            }}
-            transition={{ duration: 0.5, repeat: status === "speaking" ? Infinity : 0 }}
-          >
-            <Volume2 className="w-7 h-7" />
-          </motion.div>
-
-          {/* 结束按钮 */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={handleClose}
-            className="w-16 h-16 rounded-full flex items-center justify-center bg-red-100 text-red-500 shadow-lg"
-          >
-            <X className="w-7 h-7" />
-          </motion.button>
-        </div>
-
-        <p className="text-center text-gray-400 text-sm mt-4">
-          内容由 AI 生成 · 火山引擎语音识别
-        </p>
-      </div>
+      </main>
+      <AnimatePresence initial={false}>
+        {isTranscriptOpen && (
+          <motion.aside initial={{ width: 0, opacity: 0 }} animate={{ width: "min(390px, 88vw)", opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ type: "spring", stiffness: 300, damping: 32 }} className="shrink-0 overflow-hidden border-l border-white/60 bg-white/80 shadow-[-18px_0_42px_rgba(73,67,120,0.08)] backdrop-blur-xl">
+            <div className="flex h-full w-[min(390px,88vw)] flex-col">
+              <div className="flex items-center justify-between border-b border-gray-200/70 px-5 py-5">
+                <div><h2 className="font-semibold text-gray-800">对话逐字稿</h2><p className="mt-1 text-xs text-gray-500">实时显示识别与访谈内容</p></div>
+                <button type="button" onClick={() => setIsTranscriptOpen(false)} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="收起逐字稿"><PanelRightClose className="h-5 w-5" /></button>
+              </div>
+              <div ref={transcriptRef} className="flex-1 space-y-5 overflow-y-auto px-5 py-6">
+                {transcriptEntries.length === 0 ? <p className="pt-8 text-center text-sm leading-6 text-gray-400">探探会先开场，随后这里会实时显示你们的对话。</p> : transcriptEntries.map((entry, index) => (
+                  <div key={`${entry.speaker}-${index}`} className={entry.speaker === "agent" ? "pr-7" : "pl-7"}>
+                    <p className="mb-1 text-xs font-medium text-gray-400">{entry.speaker === "agent" ? "探探" : "你"}{entry.isPartial ? " · 识别中" : ""}</p>
+                    <p className={`rounded-2xl px-3 py-2 text-sm leading-6 ${entry.speaker === "agent" ? "bg-purple-50 text-gray-700" : "bg-white text-gray-700 shadow-sm"}`}>{entry.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

@@ -20,6 +20,7 @@ __pycache__/
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+frontend/tsconfig.tsbuildinfo
 frontend/.pnp
 frontend/.pnp.js
 
@@ -50,13 +51,13 @@ build/
 .cache/
 tmp/
 temp/
+supabase/.temp/
 
 # Data files with potential sensitive info
 backend/data/questions.json
 
 # Screenshots and temp files
 *.png.tmp
-
 
 
 

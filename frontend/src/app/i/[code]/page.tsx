@@ -32,13 +32,6 @@ export default function LinkRedirectPage() {
         const data = await response.json();
 
         if (data.valid) {
-          setLinkInfo({
-            theme: data.theme || '公司调研',
-            company_name: data.company_name,
-            interviewer_name: data.interviewer_name,
-          });
-          setStatus("valid");
-
           // 存储链接信息到 sessionStorage
           sessionStorage.setItem("interview_link", JSON.stringify({
             code,
@@ -50,10 +43,8 @@ export default function LinkRedirectPage() {
             purpose: data.purpose,
           }));
 
-          // 延迟跳转到访谈页面
-          setTimeout(() => {
-            router.push(`/interview/${code}`);
-          }, 1500);
+          // 验证完成后直接进入对话页，不展示中间成功页。
+          router.replace(`/interview/${code}`);
         } else {
           setStatus("invalid");
           setErrorMessage(data.reason || "链接无效");
@@ -134,4 +125,3 @@ export default function LinkRedirectPage() {
     </div>
   );
 }
-

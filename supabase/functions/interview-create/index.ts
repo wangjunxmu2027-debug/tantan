@@ -1,9 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
-import { WELCOME_MESSAGE, getInterviewStartPrompt } from "../_shared/prompts.ts";
+import { WELCOME_MESSAGE } from "../_shared/prompts.ts";
 import { fetchQuestionsForCompany } from "../_shared/feishu.ts";
-import { callLLM } from "../_shared/llm.ts";
 
 // 从全名提取姓氏
 function getSurname(fullName: string): string {
@@ -65,16 +64,17 @@ Deno.serve(async (req: Request) => {
       preset_name,         // 预设访谈者姓名
       link_code,           // 链接代码（用于统计）
       theme,              // 调研主题
+      purpose,            // 本次访谈目的
     } = body;
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-      console.log("预设公司模式:", preset_company, preset_name);
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     const now = new Date().toISOString();
     let stage = "collect";
-        questions = await fetchQuestionsForCompany(preset_company, supabase);
+    let welcomeMessage = WELCOME_MESSAGE;
     let questions = { part1: [], part2: [], part3: [] };
     let userInfo: any = {};
     let firstQuestion = "";
@@ -82,7 +82,6 @@ Deno.serve(async (req: Request) => {
     // 如果有主题，处理不同场景
     if (theme) {
       console.log("预设模式 - 主题:", theme, "公司:", preset_company || '空', "访谈者:", preset_name || '空');
-        questions = await fetchQuestionsForCompany("默认", supabase);
       // 加载问题库（使用新的逻辑：theme + company）
       try {
         questions = await fetchQuestionsForCompany(theme, preset_company || null, supabase);
@@ -115,23 +114,11 @@ Deno.serve(async (req: Request) => {
         if (questions.part1 && questions.part1.length > 0) {
           firstQuestion = questions.part1[0];
           
-          // 使用 LLM 生成自然的开场
-          try {
-            const prompt = getInterviewStartPrompt(
-              surname,
-              preset_company,
-              questions.part1,
-              questions.part2,
-              questions.part3
-            );
-            const llmResponse = await callLLM(prompt);
-            welcomeMessage = llmResponse;
-          } catch (e) {
-            console.error("LLM 生成失败，使用模板:", e);
-            const subject = preset_company ? `关于${preset_company}的${theme}` : theme;
-            welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次${subject}调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
-          }
+          // 实时语音模型会在会话就绪后主动开场；这里不再同步等待 LLM，避免专属链接进入页被阻塞数十秒。
+          const subject = preset_company ? `关于${preset_company}的${theme}` : theme;
+          welcomeMessage = `${honorific}您好！非常感谢您抽出宝贵时间参与本次${subject}调研访谈。\n\n让我们开始第一个问题：\n\n${firstQuestion}`;
         }
+      } else if (preset_company && !preset_name) {
         // 情况2: 主题+公司确定，姓名未确定 → 只询问姓名
         stage = "collect_name";
         welcomeMessage = getWelcomeMessage(theme, preset_company);
@@ -203,6 +190,13 @@ Deno.serve(async (req: Request) => {
       stage,
       preset_company: preset_company || null,
       preset_name: preset_name || null,
+      questions,
+      context: {
+        theme: theme || "公司调研",
+        company_name: preset_company || null,
+        interviewer_name: preset_name || null,
+        purpose: purpose || null,
+      },
     });
   } catch (err) {
     console.error("Unexpected error:", err);

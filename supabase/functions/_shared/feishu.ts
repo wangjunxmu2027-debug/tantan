@@ -294,6 +294,7 @@ async function saveViaApi(params: {
       } else {
         console.error(`保存记录失败(API): ${data.msg}`);
         return false;
+      }
     } else {
       console.error(`保存记录请求失败(API): ${response.status}`);
       return false;
@@ -304,15 +305,16 @@ async function saveViaApi(params: {
   }
 }
 
-    // 1. 先查询 Supabase 缓存
+// 获取公司问题（带缓存）
 export async function fetchQuestionsForCompany(
   theme: string,
   companyName: string | null,
+  supabase: any
 ): Promise<{ part1: string[]; part2: string[]; part3: string[] }> {
   const defaultQuestions = {
     part1: [`请问您对${theme}有哪些了解？`],
     part2: [`在${theme}方面，您认为最重要的是什么？`],
-      console.log(`从缓存加载 ${companyName} 的问题`);
+    part3: ["除了上述问题外，您还有哪些想要补充的内容？"],
   };
 
   try {
@@ -320,11 +322,12 @@ export async function fetchQuestionsForCompany(
     
     // 1. 如果有公司名，先查询 theme + company 的缓存
     if (companyName) {
-    // 2. 查询飞书
+      const { data, error } = await supabase
         .from("questions_cache")
         .select("*")
         .eq("theme", theme)
         .eq("company_name", companyName)
+        .maybeSingle();
       
       if (!error && data && data.part1?.length > 0) {
         console.log(`✓ 从缓存加载 ${theme} - ${companyName} 的问题`);
@@ -336,7 +339,7 @@ export async function fetchQuestionsForCompany(
       }
       
       // 2. 缓存没有，查询飞书 theme + company
-      return await fetchQuestionsForCompany("默认", supabase);
+      const feishuResultWithCompany = await queryQuestionsFromFeishu(theme, companyName);
       if (feishuResultWithCompany && feishuResultWithCompany.part1?.length > 0) {
         // 保存到缓存
         await supabase.from("questions_cache").upsert({

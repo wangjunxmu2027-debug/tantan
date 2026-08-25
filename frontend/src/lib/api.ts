@@ -26,6 +26,20 @@ export interface CreateSessionParams {
   preset_company?: string;
   preset_name?: string;
   link_code?: string;
+  purpose?: string;
+}
+
+export interface InterviewQuestions {
+  part1: string[];
+  part2: string[];
+  part3: string[];
+}
+
+export interface InterviewContext {
+  theme: string;
+  company_name: string | null;
+  interviewer_name: string | null;
+  purpose: string | null;
 }
 
 // API响应类型
@@ -35,6 +49,8 @@ export interface CreateSessionResponse {
   stage: string;
   preset_company?: string;
   preset_name?: string;
+  questions: InterviewQuestions;
+  context: InterviewContext;
 }
 
 export interface SendMessageResponse {
